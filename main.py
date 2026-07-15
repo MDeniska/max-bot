@@ -9,7 +9,7 @@ logger = logging.getLogger("bot")
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "f9LHodD0cOINzzDcw0J-TWsM8ZGee43BRWdy8czR8Gfhj8k7HHYVs9TbmMp07hGZa2jw2Vyq35mUNCHvKiJh")
+BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "f9LHodD0cOKLcSsrC81_zFH1su4V6tpgZbcJxKNbtCXa-_zDu1PYz9iJvbIsdyN4yo9HJfnyCaKHg80OaW2k")
 MAX_API = "https://platform-api.max.ru"
 
 @app.route('/webhook', methods=['POST'])
