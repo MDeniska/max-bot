@@ -1,5 +1,4 @@
 import os
-import json
 from flask import Flask, request, jsonify
 import requests
 import logging
@@ -21,7 +20,6 @@ def webhook():
         chat_id = data['message']['recipient']['chat_id']
         text = data['message'].get('body', {}).get('text', '').lower()
         
-        # Логика бота
         if text in ['hello', 'hi', 'привет', 'здравствуй']:
             reply = "Привет! Я бот на MaxBot. Как дела?"
         elif text in ['good bye', 'bye', 'пока', 'до свидания']:
@@ -31,7 +29,6 @@ def webhook():
         else:
             reply = "Извините, я не понял. Попробуйте написать 'привет' или '/start'."
         
-        # Отправляем ответ через API MAX
         try:
             response = requests.post(
                 f"{MAX_API}/messages",
