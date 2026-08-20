@@ -5,4 +5,5 @@ sqlalchemy>=2.0.52
 maxogram==1.1.0
 alembic>=1.13.0
 Pillow
-huggingface_hub>=0.20.0  # <-- ДОБАВИТЬ ЭТУ СТРОКУ
+huggingface_hub>=0.20.0
+gunicorn==21.2.0
