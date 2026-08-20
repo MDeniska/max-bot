@@ -1,7 +1,7 @@
 from database.connection import SessionLocal, Base, init_db
 from database.users import User
 
-# Заглушки для остальных таблиц, чтобы импорты в bot.py не падали
+# Заглушки для моделей, чтобы импорты в других файлах не падали
 class Recipe: pass
 class Ingredient: pass
 class GeneratedImage: pass
@@ -49,7 +49,7 @@ def get_temp_data(user_id: str) -> str:
         user = db.query(User).filter(User.user_id == str(user_id)).first()
         return user.temp_data if user else ""
 
-# --- Временная защита от дублей (в оперативной памяти) ---
+# --- Простая защита от дублей сообщений (в оперативной памяти) ---
 _processed_messages = set()
 
 def is_message_processed(message_id: str) -> bool:
