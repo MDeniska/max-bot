@@ -8,19 +8,23 @@ import requests
 
 logger = logging.getLogger("bot")
 
+# Берем токен из настроек Bothost (безопасно!)
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 MAX_API = "https://platform-api2.max.ru"
 
-# Железобетонный путь к сертификату из папки app/utils в корень репозитория
+# Железобетонный путь к сертификату (как в рабочем боте)
 CERT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../minifry_certs.pem"))
 
+
 def send_message(chat_id, text, attachments=None):
-    """Отправляет текстовое сообщение"""
+    """Отправляет текстовое сообщение или сообщение с кнопками"""
     headers = {"Authorization": BOT_TOKEN, "Content-Type": "application/json; charset=utf-8"}
     payload = {"text": text}
     if attachments:
         payload["attachments"] = attachments
+    
     data_str = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+    
     try:
         response = requests.post(
             f"{MAX_API}/messages",
@@ -28,13 +32,16 @@ def send_message(chat_id, text, attachments=None):
             data=data_str,
             headers=headers,
             timeout=10,
-            verify=CERT_PATH # <-- Вот здесь используется сертификат
+            verify=CERT_PATH
         )
         logger.info(f"📤 Отправка на chat_id={chat_id}. Код: {response.status_code}")
+        if response.status_code != 200:
+            logger.error(f"❌ MAX API ответил: {response.text}")
         return response.status_code == 200
     except Exception as e:
         logger.error(f"❌ Ошибка отправки: {e}")
         return False
+
 
 def answer_callback(callback_id, text):
     """Отвечает на callback (нажатие кнопки)"""
@@ -47,13 +54,14 @@ def answer_callback(callback_id, text):
             data=data_str,
             headers=headers,
             timeout=10,
-            verify=CERT_PATH # <-- И здесь
+            verify=CERT_PATH
         )
         logger.info(f"✅ Callback ответ: {response.status_code}")
         return response.status_code == 200
     except Exception as e:
         logger.error(f"❌ Ошибка callback: {e}")
         return False
+
 
 def register_webhook(webhook_url):
     """Регистрирует webhook в MAX API"""
@@ -64,10 +72,10 @@ def register_webhook(webhook_url):
             json=payload,
             headers={"Authorization": BOT_TOKEN, "Content-Type": "application/json"},
             timeout=10,
-            verify=CERT_PATH # <-- И здесь
+            verify=CERT_PATH
         )
         logger.info(f"✅ Вебхук зарегистрирован: {response.status_code} - {response.text}")
-        return response.status_code in [200, 201]
+        return response.status_code == 200
     except Exception as e:
         logger.error(f"❌ Ошибка регистрации вебхука: {e}")
         return False
