@@ -34,14 +34,19 @@ def send_message(chat_id, text, attachments=None):
             timeout=10,
             verify=CERT_PATH
         )
-        logger.info(f"📤 Отправка на chat_id={chat_id}. Код: {response.status_code}")
+        
+        # ЖЕСТКИЙ ВЫВОД ОШИБКИ В ЛОГИ
         if response.status_code != 200:
+            print(f"!!! КРИТИЧЕСКАЯ ОШИБКА MAX API {response.status_code}: {response.text} !!!")
             logger.error(f"❌ MAX API ответил: {response.text}")
+        else:
+            logger.info(f"📤 Отправка на chat_id={chat_id}. Код: {response.status_code}")
+            
         return response.status_code == 200
     except Exception as e:
+        print(f"!!! ИСКЛЮЧЕНИЕ ПРИ ОТПРАВКЕ: {e} !!!")
         logger.error(f"❌ Ошибка отправки: {e}")
         return False
-
 
 def answer_callback(callback_id, text):
     """Отвечает на callback (нажатие кнопки)"""
