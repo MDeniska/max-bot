@@ -6,8 +6,7 @@ from flask import jsonify
 
 import database as db
 from app.utils import max_api
-# Временно отключаем клавиатуры для чистого теста
-# from app import keyboards 
+from app import keyboards
 from app import messages
 
 logger = logging.getLogger("bot")
@@ -36,14 +35,11 @@ def handle_message(data, chat_id, user_id, first_name):
         
         if text.lower() == "/start":
             db.set_user_state(user_id, 'idle')
-            
-            # ТЕСТ: отправляем ТОЛЬКО текст, БЕЗ attachments (клавиатуры)
-            test_text = f"👋 Привет, {first_name}! Бот работает и видит тебя. Это тестовое сообщение без кнопок."
-            max_api.send_message(chat_id, test_text)
-            
+            # ВОЗВРАЩАЕМ КЛАВИАТУРУ! Теперь она сработает, так как токен верный.
+            max_api.send_message(chat_id, messages.WELCOME_MESSAGE, attachments=keyboards.get_main_keyboard())
             return jsonify({"ok": True}), 200
         
-        max_api.send_message(chat_id, "Я пока учусь! Напиши /start")
+        max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
         return jsonify({"ok": True}), 200
     
     except Exception as e:
