@@ -36,7 +36,8 @@ def get_avatar_styles_keyboard():
             "buttons": [
                 [{"type": "callback", "text": "🎭 Аниме", "payload": "style_anime"}],
                 [{"type": "callback", "text": "🌌 Киберпанк", "payload": "style_cyberpunk"}],
-                [{"type": "callback", "text": "🎨 Масло", "payload": "style_oil"}]
+                [{"type": "callback", "text": "🎨 Масло", "payload": "style_oil"}],
+                [{"type": "callback", "text": "💧 Акварель", "payload": "style_watercolor"}]
             ]
         }
     }]
