@@ -1,101 +1,86 @@
+"""
+Главный файл бота — тонкий роутер между Flask и обработчиками
+"""
 import os
 import json
-import requests
-from flask import Flask, jsonify, request
+import logging
+from flask import Flask, request, jsonify
 
+# Эти принты гарантируют, что мы увидим старт в логах Bothost даже при ошибке импорта
 print("=" * 60)
 print("!!! ЗАПУСК BOT.PY НА BOTHOST !!!")
-
-BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://bot-1786971397-7403-mdenis.bothost.tech/webhook")
-
-# 1. ЖЕЛЕЗОБЕТОННЫЙ ПУТЬ К СЕРТИФИКАТУ
-# Мы берем папку, где лежит bot.py, и добавляем имя файла сертификата
-CERT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "minifry_certs.pem")
-
-if os.path.exists(CERT_PATH):
-    print(f"✅ СЕРТИФИКАТ НАЙДЕН: {CERT_PATH}")
-else:
-    print(f"❌ ОШИБКА: СЕРТИФИКАТ НЕ НАЙДЕН ПО ПУТИ: {CERT_PATH}")
-
 print(f"PORT: {os.getenv('PORT', '3000')}")
-print(f"MAX_BOT_TOKEN: {'НАЙДЕН' if BOT_TOKEN else 'НЕ НАЙДЕН'}")
+print(f"MAX_BOT_TOKEN: {'НАЙДЕН' if os.getenv('MAX_BOT_TOKEN') else 'НЕ НАЙДЕН'}")
 print("=" * 60)
 
+import database as db
+from app.utils import max_api
+from app.handlers import callbacks, messages as msg_handlers
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("bot")
+
 app = Flask(__name__)
-MAX_API_URL = "https://platform-api2.max.ru"
+app.config['JSON_AS_ASCII'] = False
 
-# 2. Функция отправки сообщения с использованием сертификата
-def send_message(chat_id, text):
-    url = f"{MAX_API_URL}/messages"
-    headers = {
-        "Authorization": BOT_TOKEN,
-        "Content-Type": "application/json; charset=utf-8"
-    }
-    payload = {"text": text}
-    try:
-        # Используем CERT_PATH для проверки SSL
-        response = requests.post(url, params={"chat_id": chat_id}, json=payload, headers=headers, timeout=10, verify=CERT_PATH)
-        print(f"📤 Отправка в {chat_id}: {response.status_code} | Ответ: {response.text[:100]}")
-    except Exception as e:
-        print(f"❌ Ошибка отправки: {e}")
+# Инициализация БД
+db.init_db()
+logger.info("!!! КОНТРОЛЬНАЯ ТОЧКА: bot.py MODULAR + ERROR-HANDLING !!!")
 
-# 3. Функция регистрации вебхука с использованием сертификата
-def register_webhook():
-    url = f"{MAX_API_URL}/subscriptions"
-    headers = {
-        "Authorization": BOT_TOKEN,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "url": WEBHOOK_URL,
-        "update_types": ["message_created", "message_callback"]
-    }
-    try:
-        # Используем CERT_PATH для проверки SSL
-        response = requests.post(url, json=payload, headers=headers, timeout=10, verify=CERT_PATH)
-        print(f"✅ Регистрация вебхука: {response.status_code} | Ответ: {response.text}")
-    except Exception as e:
-        print(f"❌ Ошибка регистрации вебхука: {e}")
+# ВАЖНО: Используем URL твоего НОВОГО бота
+WEBHOOK_URL = "https://bot-1786971397-7403-mdenis.bothost.tech/webhook"
+max_api.register_webhook(WEBHOOK_URL)
 
-# 4. Главный обработчик сообщений
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    """Главный endpoint — роутит обновления к обработчикам"""
     try:
-        data = request.json
+        raw_data = request.get_data(as_text=True)
+        try:
+            data = json.loads(raw_data)
+        except:
+            data = request.json
+        
         if not data:
             return jsonify({"ok": True}), 200
 
         update_type = data.get('update_type')
 
+        # --- Нажатие кнопки ---
+        if update_type == 'message_callback':
+            callback = data.get('callback', {})
+            callback_id = callback.get('callback_id')
+            payload_data = callback.get('payload', '')
+            user_info = callback.get('user', {})
+            user_id = user_info.get('user_id')
+            first_name = user_info.get('first_name', 'Пользователь')
+            chat_id = data.get('message', {}).get('recipient', {}).get('chat_id')
+            
+            result = callbacks.handle_callback(payload_data, chat_id, user_id, first_name, callback_id)
+            return result if result else (jsonify({"ok": True}), 200)
+
+        # --- Текстовое сообщение или фото ---
         if update_type == 'message_created':
             message = data.get('message', {})
             chat_id = message.get('recipient', {}).get('chat_id')
             user_info = message.get('sender', {})
+            user_id = user_info.get('user_id')
             first_name = user_info.get('first_name', 'Пользователь')
-            text = message.get('body', {}).get('text', '').strip()
-
-            print(f"📩 Получено сообщение от {first_name}: '{text}'")
-
-            if text.lower() == '/start':
-                welcome_text = f"👋 Привет, {first_name}!\n\n🎉 Бот успешно запущен!\nСертификат подключен. Скоро здесь появится меню с AI-функциями."
-                send_message(chat_id, welcome_text)
-
-        elif update_type == 'message_callback':
-            print("🔘 Получен callback (нажатие кнопки)")
-
+            
+            result = msg_handlers.handle_message(data, chat_id, user_id, first_name)
+            return result if result else (jsonify({"ok": True}), 200)
+        
         return jsonify({"ok": True}), 200
     
     except Exception as e:
-        print(f"❌ Критическая ошибка в webhook: {e}")
+        logger.error(f"❌ Критическая ошибка в webhook: {e}", exc_info=True)
         return jsonify({"ok": True}), 200
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok", "service": "test"}), 200
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == '__main__':
-    register_webhook()
     port = int(os.getenv("PORT", 3000))
-    print(f"!!! СЕРВЕР ЗАПУЩЕН НА host=0.0.0.0, port={port} !!!")
-    app.run(host="0.0.0.0", port=port, debug=False)
+    logger.info(f"🚀 Бот запущен на порту {port}")
+    app.run(host="0.0.0.0", port=port)
