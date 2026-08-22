@@ -105,4 +105,12 @@ def handle_message(data, chat_id, user_id, first_name):
                 max_api.send_message(chat_id, "⚠️ Пожалуйста, отправь именно фотографию (нажми на скрепку 📎 или значок картинки).", attachments=keyboards.get_back_keyboard())
         
         # 6. СОСТОЯНИЕ ПО УМОЛЧАНИЮ (если пользователь пишет что-то вне сценария)
-        else
+        else:
+            max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
+        
+        return jsonify({"ok": True}), 200
+    
+    except Exception as e:
+        logger.error(f"❌ КРИТИЧЕСКОЕ ИСКЛЮЧЕНИЕ в handle_message: {e}", exc_info=True)
+        # Всегда возвращаем 200, чтобы MAX не спамил вебхуками при ошибке
+        return jsonify({"ok": True}), 200
