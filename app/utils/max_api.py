@@ -84,3 +84,42 @@ def register_webhook(webhook_url):
     except Exception as e:
         logger.error(f"❌ Ошибка регистрации вебхука: {e}")
         return False
+def download_image_from_max(image_token: str) -> bytes:
+    """Скачивает изображение из MAX API по токену"""
+    # URL для скачивания файлов в MAX API
+    file_url = f"{MAX_API}/files/{image_token}"
+    try:
+        response = requests.get(
+            file_url,
+            headers={"Authorization": BOT_TOKEN},
+            timeout=15,
+            verify=CERT_PATH
+        )
+        response.raise_for_status()
+        logger.info(f"✅ Картинка {image_token} успешно скачана")
+        return response.content
+    except Exception as e:
+        logger.error(f"❌ Ошибка скачивания картинки {image_token}: {e}")
+        return None
+
+
+def upload_image_to_max(image_bytes: bytes, filename: str = "avatar.jpg") -> str:
+    """Загружает изображение в MAX API и возвращает новый токен"""
+    upload_url = f"{MAX_API}/files"
+    try:
+        files = {'file': (filename, image_bytes, 'image/jpeg')}
+        response = requests.post(
+            upload_url,
+            headers={"Authorization": BOT_TOKEN},
+            files=files,
+            timeout=15,
+            verify=CERT_PATH
+        )
+        response.raise_for_status()
+        # MAX API возвращает JSON с токеном загруженного файла
+        new_token = response.json().get("token")
+        logger.info(f"✅ Картинка успешно загружена, новый токен: {new_token}")
+        return new_token
+    except Exception as e:
+        logger.error(f"❌ Ошибка загрузки картинки в MAX: {e}")
+        return None
