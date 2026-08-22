@@ -10,13 +10,10 @@ def get_main_keyboard():
                 [{"type": "callback", "text": "🎨 AI Аватарки", "payload": "ai_avatars"}],
                 [{"type": "callback", "text": "🖼️ Генерация картинок", "payload": "generate_image"}],
                 [{"type": "callback", "text": "😂 Генератор мемов", "payload": "meme_generator"}],
-                [{"type": "callback", "text": "🔮 AI Гороскоп", "payload": "ai_horoscope"}],
-                [{"type": "callback", "text": "🤖 AI Собеседник", "payload": "ai_chat"}],
-                [{"type": "callback", "text": "📝 AI Контент", "payload": "ai_content"}]
+                [{"type": "callback", "text": "🔮 AI Гороскоп", "payload": "ai_horoscope"}]
             ]
         }
     }]
-
 
 def get_back_keyboard():
     return [{
@@ -27,7 +24,6 @@ def get_back_keyboard():
             ]
         }
     }]
-
 
 def get_avatar_styles_keyboard():
     return [{
