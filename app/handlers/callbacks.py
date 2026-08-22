@@ -7,7 +7,6 @@ from flask import jsonify
 import database as db
 from app.utils import max_api
 from app import keyboards
-from app import messages
 
 logger = logging.getLogger("bot")
 
@@ -24,7 +23,7 @@ def handle_callback(data, chat_id, user_id, first_name, callback_id):
     if data == "main_menu":
         db.set_user_state(user_id, 'idle')
         max_api.answer_callback(callback_id, "Возвращаемся в меню")
-        max_api.send_message(chat_id, messages.WELCOME_MESSAGE, attachments=keyboards.get_main_keyboard())
+        max_api.send_message(chat_id, "🏠 Главное меню:", attachments=keyboards.get_main_keyboard())
     
     # --- AI АВАТАРКИ ---
     elif data == "ai_avatars":
@@ -34,12 +33,25 @@ def handle_callback(data, chat_id, user_id, first_name, callback_id):
     
     elif data.startswith("style_"):
         style = data.replace("style_", "")
-        # Сохраняем выбранный стиль во временные данные
         db.save_temp_data(user_id, f"style:{style}")
         db.set_user_state(user_id, 'avatar_waiting_photo')
-        max_api.answer_callback(callback_id, f"Стиль выбран!")
-        max_api.send_message(chat_id, f"📸 Отлично! Теперь отправь мне свое фото, и я превращу его в стиль **{style.capitalize()}**.\n\n💡 *Совет: чем четче фото, тем лучше результат.*", attachments=keyboards.get_back_keyboard())
-    
+        max_api.answer_callback(callback_id, "Стиль выбран!")
+        max_api.send_message(
+            chat_id, 
+            f"📸 Отлично! Теперь отправь мне свое фото, и я превращу его в стиль **{style.capitalize()}**.\n\n💡 *Совет: чем четче фото, тем лучше результат.*", 
+            attachments=keyboards.get_back_keyboard()
+        )
+        
+    # --- ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ ---
+    elif data == "generate_image":
+        db.set_user_state(user_id, 'waiting_image_prompt')
+        max_api.answer_callback(callback_id, "Готов к творчеству!")
+        max_api.send_message(
+            chat_id, 
+            "🖼️ Опиши словами, что ты хочешь увидеть.\n\n*Например:* 'Кот в скафандре на Луне, фотореалистично' или 'Закат в киберпанк-городе'", 
+            attachments=keyboards.get_back_keyboard()
+        )
+        
     else:
         max_api.answer_callback(callback_id, "Функция в разработке 🛠️")
     
