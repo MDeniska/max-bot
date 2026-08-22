@@ -5,18 +5,19 @@ import os
 import logging
 import io
 from PIL import Image
-from huggingface_hub import InferenceClient
+from huggingface_hub import InferenceClient, InferenceTimeoutError
 
 logger = logging.getLogger("huggingface")
 
-HF_TOKEN = os.getenv("HF_TOKEN", "")
+# Берем токен из переменных окружения. Если его там нет, используем твой (но лучше держать его в .env / настройках Bothost!)
+HF_TOKEN = os.getenv("HF_TOKEN", "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")
 
-# Промпты для разных стилей (адаптированы под instruct-pix2pix)
+# Промпты для разных стилей (оптимизированы для instruct-pix2pix)
 STYLE_PROMPTS = {
     "anime": "anime style, studio ghibli, vibrant colors, masterpiece, best quality, highly detailed",
     "cyberpunk": "cyberpunk style, neon lights, futuristic, highly detailed, 8k resolution, cinematic lighting",
-    "oil": "oil painting, textured, masterpiece, museum quality, thick brushstrokes, classical art",
-    "watercolor": "watercolor painting, artistic, gentle edges, pastel colors, soft lighting"
+    "oil": "classical oil painting, textured, masterpiece, museum quality, thick brushstrokes, classical art",
+    "watercolor": "soft watercolor painting, artistic, gentle edges, pastel colors, soft lighting"
 }
 
 def generate_avatar(image_bytes: bytes, style: str) -> bytes:
@@ -24,20 +25,23 @@ def generate_avatar(image_bytes: bytes, style: str) -> bytes:
     prompt = STYLE_PROMPTS.get(style, STYLE_PROMPTS["anime"])
     
     try:
-        logger.info(f"🎨 Запрос к HF через InferenceClient: стиль {style}...")
+        logger.info(f"🎨 Запрос к HF (модель: timbrooks/instruct-pix2pix), стиль: {style}")
         
-        # Официальный клиент часто лучше справляется с сетевыми нюансами хостингов
+        # Инициализируем клиент
         client = InferenceClient(model="timbrooks/instruct-pix2pix", token=HF_TOKEN)
         
-        # Конвертируем полученные байты в объект PIL Image, который требует клиент
-        input_image = Image.open(io.BytesIO(image_bytes))
+        # Открываем изображение и ГАРАНТИРОВАННО конвертируем в RGB. 
+        # Это критически важно, так как PNG с прозрачностью (RGBA) часто вызывают молчаливые ошибки в API.
+        input_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         
-        # Выполняем преобразование
-        # strength=0.8 означает сильное изменение стиля с сохранением черт
+        logger.info(f"📏 Размер исходного изображения: {input_image.size}")
+        
+        # strength=0.7 означает, что мы меняем стиль, но сохраняем 30% исходных черт лица.
+        # Если лицо все равно меняется сильно, можно снизить до 0.6
         result_image = client.image_to_image(
             input_image,
             prompt=prompt,
-            strength=0.8,
+            strength=0.7,
             guidance_scale=7.5
         )
         
@@ -48,6 +52,11 @@ def generate_avatar(image_bytes: bytes, style: str) -> bytes:
         logger.info("✅ Изображение успешно обработано Hugging Face!")
         return img_byte_arr.getvalue()
         
+    except InferenceTimeoutError:
+        logger.warning("⏳ Превышено время ожидания Hugging Face (модель 'просыпается').")
+        raise Exception("Модель Hugging Face сейчас загружается на сервере. Пожалуйста, попробуй отправить фото еще раз через 30 секунд.")
     except Exception as e:
-        logger.error(f"❌ Ошибка Hugging Face: {e}")
-        raise Exception(f"Не удалось обработать изображение: {str(e)}")
+        # Логируем ПОЛНЫЙ и ПОДРОБНЫЙ текст ошибки, чтобы мы точно знали, что пошло не так
+        error_details = str(e)
+        logger.error(f"❌ ДЕТАЛЬНАЯ ОШИБКА HUGGING FACE: {error_details}")
+        raise Exception(f"Ошибка Hugging Face: {error_details}")
