@@ -1,31 +1,60 @@
 import logging
+from database.connection import SessionLocal, Base, init_db
+from database.users import User
 
 logger = logging.getLogger("database")
 
-# Простая инициализация (заглушка, чтобы не падал импорт)
-def init_db():
-    logger.info("🗄️ База данных инициализирована (заглушка)")
+# Экспортируем всё, что нужно боту
+__all__ = [
+    "init_db", "save_chat_id", "set_user_state", "get_user_state", 
+    "save_temp_data", "get_temp_data", "is_message_processed", "mark_message_processed"
+]
 
-def save_chat_id(user_id, chat_id):
-    pass
+def save_chat_id(user_id: str, chat_id: str):
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.user_id == str(user_id)).first()
+        if not user:
+            user = User(user_id=str(user_id), chat_id=str(chat_id))
+            db.add(user)
+        else:
+            user.chat_id = str(chat_id)
+        db.commit()
 
-def set_user_state(user_id, state):
-    pass
+def set_user_state(user_id: str, state: str):
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.user_id == str(user_id)).first()
+        if user:
+            user.state = state
+        else:
+            user = User(user_id=str(user_id), state=state)
+            db.add(user)
+        db.commit()
 
-def get_user_state(user_id):
-    return "idle"
+def get_user_state(user_id: str) -> str:
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.user_id == str(user_id)).first()
+        return user.state if user else "idle"
 
-def save_temp_data(user_id, data):
-    pass
+def save_temp_data(user_id: str, data: str):
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.user_id == str(user_id)).first()
+        if user:
+            user.temp_data = str(data)
+        else:
+            user = User(user_id=str(user_id), temp_data=str(data))
+            db.add(user)
+        db.commit()
 
-def get_temp_data(user_id):
-    return ""
+def get_temp_data(user_id: str) -> str:
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.user_id == str(user_id)).first()
+        return user.temp_data if user else ""
 
-# Защита от дублей в памяти
+# Защита от дублей сообщений (в оперативной памяти)
 _processed_messages = set()
 
-def is_message_processed(message_id):
+def is_message_processed(message_id: str) -> bool:
     return str(message_id) in _processed_messages
 
-def mark_message_processed(message_id):
+def mark_message_processed(message_id: str):
     _processed_messages.add(str(message_id))
