@@ -4,7 +4,6 @@ from database.users import User
 
 logger = logging.getLogger("database")
 
-# Экспортируем всё, что нужно боту
 __all__ = [
     "init_db", "save_chat_id", "set_user_state", "get_user_state", 
     "save_temp_data", "get_temp_data", "is_message_processed", "mark_message_processed"
@@ -50,7 +49,6 @@ def get_temp_data(user_id: str) -> str:
         user = db.query(User).filter(User.user_id == str(user_id)).first()
         return user.temp_data if user else ""
 
-# Защита от дублей сообщений (в оперативной памяти)
 _processed_messages = set()
 
 def is_message_processed(message_id: str) -> bool:
