@@ -2,6 +2,7 @@
 Обработчики текстовых сообщений и фото
 """
 import logging
+import json
 from flask import jsonify
 
 import database as db
@@ -27,12 +28,18 @@ def handle_message(data, chat_id, user_id, first_name):
         text = message.get('body', {}).get('text', '').strip()
         attachments = message.get('body', {}).get('attachments', [])
         
+        # 🔍 ДЕТАЛЬНЫЙ ЛОГ: покажем нам всю структуру attachments
+        logger.info(f"📎 ПОЛНЫЕ ATTACHMENTS: {json.dumps(attachments, ensure_ascii=False)}")
+        
         incoming_image_token = None
+        incoming_image_url = None # <-- Новая переменная для прямой ссылки
+        
         for att in attachments:
             if att.get('type') == 'image':
-                incoming_image_token = att.get('payload', {}).get('token')
-                break
-        
+                payload = att.get('payload', {})
+                incoming_image_token = payload.get('token')
+                incoming_image_url = payload.get('url') # Пробуем найти прямую ссылку
+                
         if not text and not incoming_image_token:
             return jsonify({"ok": True}), 200
         
@@ -42,13 +49,11 @@ def handle_message(data, chat_id, user_id, first_name):
         if user_id and chat_id:
             db.save_chat_id(user_id, chat_id)
         
-        # --- ГЛОБАЛЬНАЯ КОМАНДА /start ---
         if text.lower() == "/start":
             db.set_user_state(user_id, 'idle')
             max_api.send_message(chat_id, messages.WELCOME_MESSAGE, attachments=keyboards.get_main_keyboard())
             return jsonify({"ok": True}), 200
         
-        # --- СЦЕНАРИЙ: AI АВАТАРКИ (Ждем фото) ---
         if state == 'avatar_waiting_photo':
             if incoming_image_token:
                 max_api.send_message(chat_id, "🎨 Получил фото! Магия начинается... Это займет 15-40 секунд.")
@@ -57,21 +62,32 @@ def handle_message(data, chat_id, user_id, first_name):
                 style = temp_data.replace("style:", "")
                 
                 try:
-                    # 1. Скачиваем оригинал
-                    original_bytes = max_api.download_image_from_max(incoming_image_token)
-                    if not original_bytes:
-                        raise Exception("Не удалось скачать фото из MAX")
+                    original_bytes = None
                     
-                    # 2. Обрабатываем в Hugging Face
+                    # ВАРИАНТ А: Если есть прямая ссылка, скачиваем по ней (самый надежный способ)
+                    if incoming_image_url:
+                        logger.info(f"📥 Скачиваем по прямой ссылке: {incoming_image_url}")
+                        resp = max_api.requests.get(incoming_image_url, timeout=15)
+                        resp.raise_for_status()
+                        original_bytes = resp.content
+                    else:
+                        # ВАРИАНТ Б: Если ссылки нет, пробуем старый метод (он дал 404, но оставим как запасной)
+                        logger.warning("⚠️ Прямой ссылки нет, пробуем скачать через API MAX...")
+                        original_bytes = max_api.download_image_from_max(incoming_image_token)
+                    
+                    if not original_bytes:
+                        raise Exception("Не удалось получить байты изображения")
+                    
+                    logger.info(f"✅ Изображение скачано, размер: {len(original_bytes)} байт. Отправляем в Hugging Face...")
+                    
                     processed_bytes = huggingface_client.generate_avatar(original_bytes, style)
                     
-                    # 3. Загружаем результат обратно в MAX
                     new_token = max_api.upload_image_to_max(processed_bytes, f"avatar_{user_id}.jpg")
                     
                     if new_token:
                         max_api.send_image_message(
                             chat_id, 
-                            f"✨ Готово! Твоя аватарка в стиле **{style.capitalize()}**.\n\nХочешь попробовать другой стиль? Выбери его в главном меню!", 
+                            f"✨ Готово! Твоя аватарка в стиле **{style.capitalize()}**.", 
                             new_token
                         )
                     else:
@@ -82,12 +98,11 @@ def handle_message(data, chat_id, user_id, first_name):
                     
                 except Exception as e:
                     logger.error(f"Ошибка генерации аватара: {e}")
-                    max_api.send_message(chat_id, f"❌ Упс, что-то пошло не так: {str(e)}\n\nПопробуй отправить фото еще раз или выбери другой стиль.", attachments=keyboards.get_back_keyboard())
+                    max_api.send_message(chat_id, f"❌ Упс, что-то пошло не так: {str(e)}\n\nПопробуй отправить фото еще раз.", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
             else:
-                max_api.send_message(chat_id, "⚠️ Пожалуйста, отправь именно фотографию (нажми на скрепку 📎), а не текст.", attachments=keyboards.get_back_keyboard())
+                max_api.send_message(chat_id, "⚠️ Пожалуйста, отправь именно фотографию (нажми на скрепку 📎).", attachments=keyboards.get_back_keyboard())
         
-        # --- СОСТОЯНИЕ ПО УМОЛЧАНИЮ ---
         else:
             max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
         
