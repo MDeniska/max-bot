@@ -110,3 +110,32 @@ def generate_avatar(image_bytes: bytes, style: str) -> bytes:
     except Exception as e:
         logger.error(f"❌ Ошибка Stable Horde: {e}")
         raise Exception(f"Не удалось обработать изображение: {str(e)}")
+def generate_image_from_text(prompt: str, width: int = 768, height: int = 768) -> bytes:
+    """Генерация картинки по текстовому описанию (txt2img)"""
+    logger.info(f"🎨 Stable Horde: txt2img '{prompt[:50]}...'")
+    
+    headers = {
+        "apikey": HORDE_API_KEY,
+        "Content-Type": "application/json",
+        "Client-Agent": "MaxBot:1.0.0:unknown:0.0.0"
+    }
+    
+    payload = {
+        "prompt": f"masterpiece, best quality, highly detailed, {prompt}",
+        "negative_prompt": "ugly, blurry, low quality, distorted, deformed, bad anatomy, watermark, text",
+        "params": {
+            "sampler_name": "k_dpmpp_2m",
+            "cfg_scale": 8.0,
+            "steps": 30,
+            "width": width,
+            "height": height,
+            "karras": True,
+            "post_processing": ["GFPGAN"] # Улучшает детали, если вдруг сгенерировались лица
+        },
+        "nsfw": False,
+        "censor_nsfw": False,
+        "models": ["AlbedoBase XL (SDXL)"],
+        "r2": True
+    }
+    
+    return _submit_and_wait(headers, payload, max_wait_seconds=300)
