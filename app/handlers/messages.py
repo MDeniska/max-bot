@@ -3,13 +3,13 @@
 """
 import logging
 import json
-import base64
 import requests
 from flask import jsonify
 
 import database as db
 from app.utils import max_api
-from app.utils import stable_horde_client
+from app.utils import huggingface_client   # Для аватарок (сохранение лица)
+from app.utils import stable_horde_client  # Для генерации по тексту
 from app import keyboards
 from app import messages
 
@@ -20,14 +20,15 @@ def handle_message(data, chat_id, user_id, first_name):
     try:
         message = data.get('message', {})
         
-        # 1. Защита от дубликатов
+        # 1. Защита от дубликатов сообщений
         message_id = message.get('id') or message.get('message_id') or data.get('update_id')
         if message_id:
             if db.is_message_processed(message_id):
+                logger.info(f"🔁 Дубликат сообщения {message_id} — пропускаем")
                 return jsonify({"ok": True}), 200
             db.mark_message_processed(message_id)
         
-        # 2. Извлечение данных
+        # 2. Извлечение текста и вложений
         text = message.get('body', {}).get('text', '').strip()
         attachments = message.get('body', {}).get('attachments', [])
         
@@ -41,45 +42,41 @@ def handle_message(data, chat_id, user_id, first_name):
         if not text and not incoming_image_url:
             return jsonify({"ok": True}), 200
         
+        # 3. Получение текущего состояния пользователя
         state = db.get_user_state(user_id)
         logger.info(f"📩 Текст: '{text[:20]}...' | Фото: {bool(incoming_image_url)} | State: '{state}' | user_id={user_id}")
         
         if user_id and chat_id:
             db.save_chat_id(user_id, chat_id)
         
-        # 3. Глобальная команда /start
+        # 4. Глобальная команда /start
         if text.lower() == "/start":
             db.set_user_state(user_id, 'idle')
             max_api.send_message(chat_id, messages.WELCOME_MESSAGE, attachments=keyboards.get_main_keyboard())
             return jsonify({"ok": True}), 200
         
-        # 4. СЦЕНАРИЙ: AI АВАТАРКИ (Ожидаем фото)
+        # 5. СЦЕНАРИЙ: AI АВАТАРКИ (Ожидаем фото) -> ИСПОЛЬЗУЕМ HUGGING FACE
         if state == 'avatar_waiting_photo':
             if incoming_image_url:
-                max_api.send_message(chat_id, "🎨 Получил фото! Магия начинается... Это займет 20-40 секунд.")
+                max_api.send_message(chat_id, "🎨 Получил фото! Магия начинается... Это займет 15-30 секунд.")
                 
                 temp_data = db.get_temp_data(user_id) or "style:anime"
                 style_key = temp_data.replace("style:", "")
                 
                 try:
+                    # Шаг А: Скачиваем исходное фото
                     logger.info(f"📥 Скачиваем исходное фото: {incoming_image_url}")
                     resp = requests.get(incoming_image_url, timeout=15)
                     resp.raise_for_status()
                     original_bytes = resp.content
                     
-                    logger.info(f"🎨 Отправляем в Stable Horde (стиль: {style_key})...")
-                    source_image_base64 = base64.b64encode(original_bytes).decode('utf-8')
+                    # Шаг Б: Отправляем в Hugging Face для стилизации с сохранением лица
+                    logger.info(f"🎨 Отправляем в Hugging Face (стиль: {style_key})...")
+                    processed_bytes = huggingface_client.generate_avatar(original_bytes, style_key)
                     
-                    processed_bytes = stable_horde_client.generate_avatar_from_image(
-                        source_image_base64=source_image_base64,
-                        style=style_key
-                    )
-                    
-                    if not processed_bytes:
-                        raise Exception("Stable Horde не вернул изображение")
-                    
+                    # Шаг В: Загружаем результат обратно в MAX API
                     logger.info("📤 Загружаем результат в MAX API...")
-                    new_token = stable_horde_client.upload_to_max_api(processed_bytes)
+                    new_token = max_api.upload_image_to_max(processed_bytes, f"avatar_{user_id}.jpg")
                     
                     if new_token:
                         max_api.send_image_message(
@@ -88,8 +85,9 @@ def handle_message(data, chat_id, user_id, first_name):
                             new_token
                         )
                     else:
-                        raise Exception("Не удалось загрузить результат в MAX API")
+                        raise Exception("Не удалось загрузить результат в MAX API (пустой токен)")
                         
+                    # Шаг Г: Сбрасываем состояние
                     db.set_user_state(user_id, 'idle')
                     db.save_temp_data(user_id, "")
                     logger.info("✅ Сценарий аватарки успешно завершен")
@@ -98,23 +96,25 @@ def handle_message(data, chat_id, user_id, first_name):
                     logger.error(f"❌ Ошибка генерации аватара: {e}")
                     max_api.send_message(
                         chat_id, 
-                        f"❌ Упс, произошла ошибка: {str(e)}\n\n💡 *Совет:* Попробуй отправить другое, более четкое фото, или выбери другой стиль.", 
+                        f"❌ Упс, произошла ошибка: {str(e)}\n\n💡 *Совет:* Если модель 'проснулась', просто отправь фото еще раз!", 
                         attachments=keyboards.get_back_keyboard()
                     )
                     db.set_user_state(user_id, 'idle')
             else:
-                max_api.send_message(chat_id, "⚠️ Пожалуйста, отправь именно фотографию (нажми на скрепку 📎).", attachments=keyboards.get_back_keyboard())
+                # Пользователь отправил текст вместо фото
+                max_api.send_message(chat_id, "⚠️ Пожалуйста, отправь именно фотографию (нажми на скрепку 📎 или значок картинки).", attachments=keyboards.get_back_keyboard())
         
-        # 5. СЦЕНАРИЙ: ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ
+        # 6. СЦЕНАРИЙ: ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ -> ИСПОЛЬЗУЕМ STABLE HORDE
         elif state == 'waiting_image_prompt':
             if text:
                 max_api.send_message(chat_id, "🎨 Магия начинается... Рисую по твоему описанию. Это займет 20-40 секунд.")
                 
                 try:
+                    # Генерируем картинку по тексту (512x512 для скорости и бесплатных лимитов)
                     processed_bytes = stable_horde_client.generate_image_from_text(
                         prompt=text,
-                        width=768,
-                        height=768
+                        width=512,
+                        height=512
                     )
                     
                     if not processed_bytes:
@@ -144,7 +144,7 @@ def handle_message(data, chat_id, user_id, first_name):
             else:
                 max_api.send_message(chat_id, "⚠️ Пожалуйста, напиши описание картинки текстом.", attachments=keyboards.get_back_keyboard())
         
-        # 6. СОСТОЯНИЕ ПО УМОЛЧАНИЮ
+        # 7. СОСТОЯНИЕ ПО УМОЛЧАНИЮ (если пользователь пишет что-то вне сценария)
         else:
             max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
         
@@ -152,4 +152,5 @@ def handle_message(data, chat_id, user_id, first_name):
     
     except Exception as e:
         logger.error(f"❌ КРИТИЧЕСКОЕ ИСКЛЮЧЕНИЕ в handle_message: {e}", exc_info=True)
+        # Всегда возвращаем 200, чтобы MAX не спамил вебхуками при ошибке
         return jsonify({"ok": True}), 200
