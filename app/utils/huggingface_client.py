@@ -1,6 +1,6 @@
 """
 Клиент для Hugging Face Inference API (Image-to-Image)
-Использует прямые запросы для максимальной стабильности и прозрачности ошибок.
+Использует прямые запросы для максимальной стабильности и сохранения лица.
 """
 import os
 import logging
@@ -12,9 +12,7 @@ from PIL import Image
 logger = logging.getLogger("huggingface")
 
 HF_TOKEN = os.getenv("HF_TOKEN", "")
-
-# Используем самую стабильную модель на бесплатном API
-MODEL_ID = "runwayml/stable-diffusion-v1-5"
+MODEL_ID = "timbrooks/instruct-pix2pix"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 
 HEADERS = {
@@ -22,12 +20,11 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-# Промпты, усиленные для сохранения черт лица
 STYLE_PROMPTS = {
-    "anime": "masterpiece, best quality, anime style, studio ghibli, vibrant colors, highly detailed, 1girl/1boy, same face, same person",
-    "cyberpunk": "masterpiece, best quality, cyberpunk style, neon lights, futuristic, highly detailed, 8k resolution, cinematic lighting, same face, same person",
-    "oil": "masterpiece, best quality, classical oil painting, textured, museum quality, thick brushstrokes, classical art, same face, same person",
-    "watercolor": "masterpiece, best quality, soft watercolor painting, artistic, gentle edges, pastel colors, soft lighting, same face, same person"
+    "anime": "make this person look like a high quality anime character, studio ghibli style, vibrant colors, masterpiece",
+    "cyberpunk": "make this person look like a cyberpunk character, neon lights, futuristic, highly detailed, 8k resolution",
+    "oil": "make this look like a classical oil painting, textured, masterpiece, museum quality, thick brushstrokes",
+    "watercolor": "make this look like a soft watercolor painting, artistic, gentle edges, pastel colors"
 }
 
 def generate_avatar(image_bytes: bytes, style: str) -> bytes:
@@ -40,31 +37,32 @@ def generate_avatar(image_bytes: bytes, style: str) -> bytes:
         # 1. Открываем и конвертируем в RGB
         input_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         
-        # 2. Приводим к размеру, кратному 64 (требование Stable Diffusion), макс 768x768
-        max_dim = 768
-        if input_image.width > max_dim or input_image.height > max_dim:
-            input_image.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+        # 2. КРИТИЧЕСКИ ВАЖНО: Уменьшаем до 512x512. 
+        # Это предотвращает "молчаливые" сбои API из-за слишком большого размера файла
+        max_dimension = 512
+        if input_image.width > max_dimension or input_image.height > max_dimension:
+            input_image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
             
-        # Округляем до кратного 64 для идеальной совместимости
-        width = (input_image.width // 64) * 64
-        height = (input_image.height // 64) * 64
+        # Округляем до кратного 8 для совместимости с моделью
+        width = (input_image.width // 8) * 8
+        height = (input_image.height // 8) * 8
         input_image = input_image.resize((width, height), Image.Resampling.LANCZOS)
         logger.info(f"📏 Изображение подготовлено для API: {width}x{height}")
         
-        # 3. Кодируем в base64 для отправки в JSON
+        # 3. Кодируем в base64
         img_byte_arr = io.BytesIO()
         input_image.save(img_byte_arr, format='JPEG', quality=90)
         img_base64 = base64.b64encode(img_byte_arr.getvalue()).decode('utf-8')
         
-        # 4. Формируем payload для img2img
+        # 4. Формируем payload. strength=0.7 означает: 70% нового стиля, 30% сохранения оригинала
         payload = {
             "inputs": img_base64,
             "parameters": {
                 "prompt": prompt,
-                "negative_prompt": "ugly, blurry, low quality, distorted, deformed, different face, changed face, mutated, extra limbs",
-                "strength": 0.65,       # 0.65 сохраняет лицо, но меняет стиль
+                "negative_prompt": "ugly, blurry, low quality, distorted, deformed, different face, mutated, extra limbs",
+                "strength": 0.7,
                 "guidance_scale": 7.5,
-                "num_inference_steps": 30
+                "num_inference_steps": 25
             }
         }
         
@@ -73,7 +71,6 @@ def generate_avatar(image_bytes: bytes, style: str) -> bytes:
         
         # 5. Проверяем ответ
         if response.headers.get("content-type") == "application/json":
-            # Если пришел JSON, значит это ошибка от сервера HF
             error_data = response.json()
             error_msg = error_data.get("error", "Неизвестная ошибка сервера")
             logger.error(f"❌ ОШИБКА HUGGING FACE (JSON): {error_msg}")
@@ -85,7 +82,6 @@ def generate_avatar(image_bytes: bytes, style: str) -> bytes:
         
         response.raise_for_status()
         
-        # Если всё хорошо, в ответе приходят байты картинки
         logger.info("✅ Изображение успешно обработано Hugging Face!")
         return response.content
         
