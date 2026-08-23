@@ -1,6 +1,6 @@
 """
 Клиент для работы со Stable Horde API
-Оптимизирован для сохранения лица в img2img и генерации по тексту (txt2img)
+Оптимизирован для быстрой генерации на бесплатных воркерах
 """
 import requests
 import logging
@@ -46,22 +46,22 @@ def generate_avatar_from_image(source_image_base64: str, style: str) -> bytes:
         "params": {
             "sampler_name": "k_dpmpp_2m",
             "cfg_scale": 9.0,
-            "steps": 30,
+            "steps": 25, # Чуть меньше шагов для скорости
             "width": 768,
             "height": 768,
-            "denoising_strength": 0.55, # Ключевой параметр для сохранения лица
+            "denoising_strength": 0.55,
             "karras": True,
-            "post_processing": ["GFPGAN"] # Улучшение черт лица
+            "post_processing": ["GFPGAN"]
         },
         "nsfw": False,
         "censor_nsfw": False,
-        "models": ["AlbedoBase XL (SDXL)"],
+        "models": ["stable_diffusion"], # БЫСТРАЯ И СТАБИЛЬНАЯ МОДЕЛЬ
         "source_image": source_image_base64,
         "source_processing": "img2img",
         "r2": True
     }
     
-    return _submit_and_wait(headers, payload, max_wait_seconds=300)
+    return _submit_and_wait(headers, payload, max_wait_seconds=600) # 10 минут ожидания
 
 
 def generate_image_from_text(prompt: str, width: int = 768, height: int = 768) -> bytes:
@@ -80,7 +80,7 @@ def generate_image_from_text(prompt: str, width: int = 768, height: int = 768) -
         "params": {
             "sampler_name": "k_dpmpp_2m",
             "cfg_scale": 8.0,
-            "steps": 30,
+            "steps": 25,
             "width": width,
             "height": height,
             "karras": True,
@@ -88,15 +88,15 @@ def generate_image_from_text(prompt: str, width: int = 768, height: int = 768) -
         },
         "nsfw": False,
         "censor_nsfw": False,
-        "models": ["AlbedoBase XL (SDXL)"],
+        "models": ["stable_diffusion"], # БЫСТРАЯ И СТАБИЛЬНАЯ МОДЕЛЬ
         "r2": True
     }
     
-    return _submit_and_wait(headers, payload, max_wait_seconds=300)
+    return _submit_and_wait(headers, payload, max_wait_seconds=600) # 10 минут ожидания
 
 
-def _submit_and_wait(headers, payload, max_wait_seconds=300):
-    """Отправляет запрос и ждёт результат"""
+def _submit_and_wait(headers, payload, max_wait_seconds=600):
+    """Отправляет запрос и ждёт результат с логированием прогресса"""
     request_id = None
     try:
         response = requests.post(f"{HORDE_API_URL}/generate/async", headers=headers, json=payload, timeout=30)
@@ -111,6 +111,8 @@ def _submit_and_wait(headers, payload, max_wait_seconds=300):
         logger.info(f"✅ Stable Horde: запрос отправлен, ID: {request_id}")
         
         start_time = time.time()
+        last_logged_queue = 0
+        
         while time.time() - start_time < max_wait_seconds:
             time.sleep(3)
             try:
@@ -119,11 +121,20 @@ def _submit_and_wait(headers, payload, max_wait_seconds=300):
                     continue
                 
                 check_data = check_response.json()
+                
                 if check_data.get("faulted"):
-                    logger.error("❌ Stable Horde: запрос отменён сервером")
+                    logger.error("❌ Stable Horde: запрос отменён сервером (faulted)")
                     return None
                 
+                # Логируем прогресс очереди, чтобы было видно, что бот не завис
+                queue_pos = check_data.get("queue_position", 0)
+                wait_time = check_data.get("wait_time", 0)
+                if queue_pos > 0 and queue_pos != last_logged_queue:
+                    logger.info(f"⏳ Stable Horde: в очереди. Позиция: {queue_pos}, примерное время: {wait_time} сек.")
+                    last_logged_queue = queue_pos
+                
                 if check_data.get("done"):
+                    logger.info("✅ Stable Horde: генерация завершена! Забираем результат...")
                     status_response = requests.get(f"{HORDE_API_URL}/generate/status/{request_id}", headers=headers, timeout=30)
                     if status_response.status_code == 200:
                         status_data = status_response.json()
@@ -135,9 +146,11 @@ def _submit_and_wait(headers, payload, max_wait_seconds=300):
                                 logger.info(f"✅ Stable Horde: картинка скачана ({len(img_response.content)} байт)")
                                 return img_response.content
                     return None
-            except Exception:
+            except Exception as e:
+                logger.warning(f"⚠️ Stable Horde: ошибка при проверке статуса: {e}")
                 continue
-        logger.error("❌ Stable Horde: таймаут ожидания")
+                
+        logger.error(f"❌ Stable Horde: таймаут ожидания ({max_wait_seconds} сек). Попробуйте позже.")
         return None
     except Exception as e:
         logger.error(f"❌ Stable Horde исключение: {e}")
