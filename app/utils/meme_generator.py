@@ -1,6 +1,6 @@
 """
-Генератор мемов через memegen.link (Идеальный шрифт Impact, актуальные шаблоны)
-Использует правильные query parameters для 100% работы с кириллицей.
+Генератор мемов через memegen.link (Идеальный шрифт Impact)
+Использует формат пути URL, который является официальным и самым стабильным.
 """
 import requests
 import logging
@@ -9,18 +9,14 @@ import os
 
 logger = logging.getLogger("bot")
 
-# Актуальные и популярные шаблоны (ID из memegen.link)
+# Только самые надежные шаблоны, которые отлично смотрятся с 1-2 строками текста
 TEMPLATES = [
     "drake",             # Drake Hotline Bling
-    "distracted",        # Distracted Boyfriend
-    "change_my_mind",    # Change My Mind
-    "is_this",           # Is this a pigeon?
     "two_buttons",       # Two Buttons (Daily Struggle)
-    "left_exit_12",      # Left Exit 12 Off Ramp
+    "is_this",           # Is this a pigeon?
     "success",           # Success Kid
-    "roll_safe",         # Roll Safe (Think about it)
-    "uno_reverse",       # Uno Reverse Card
-    "always_has_been"    # Always Has Been (Astronaut)
+    "always_has_been",   # Always Has Been (Astronaut)
+    "left_exit_12"       # Left Exit 12 Off Ramp
 ]
 
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
@@ -28,12 +24,12 @@ CERT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../minif
 
 
 def clean_text(text: str) -> str:
-    """Заменяет пробелы на подчеркивания для корректного рендеринга"""
-    return text.replace(" ", "_")
+    """Заменяет пробелы на подчеркивания. requests сам корректно закодирует кириллицу."""
+    return text.strip().replace(" ", "_")
 
 
 def generate_meme(text: str) -> bytes:
-    """Генерирует мем через memegen.link с правильными параметрами"""
+    """Генерирует мем через memegen.link"""
     
     # 1. Умное разделение текста по слэшу или тире
     separators = ['/', '-', '—', '|']
@@ -48,7 +44,7 @@ def generate_meme(text: str) -> bytes:
         text_top = parts[0].strip()
         text_bottom = parts[1].strip() if len(parts) > 1 else ""
     else:
-        # Если разделителя нет, используем только нижний текст
+        # Если разделителя нет, текст идет вниз, а сверху будет пусто (_)
         text_top = ""
         text_bottom = text.strip()
 
@@ -57,36 +53,28 @@ def generate_meme(text: str) -> bytes:
     # 2. Выбираем случайный шаблон
     template_id = random.choice(TEMPLATES)
     
-    # 3. Формируем базовый URL
-    url = f"https://api.memegen.link/images/{template_id}.jpg"
-    
-    # 4. КРИТИЧЕСКИ ВАЖНО: правильные имена параметров для memegen.link
-    # Для двух строк используем массив text[], для одной строки - просто text
+    # 3. Формируем URL в формате пути. 
+    # requests автоматически и корректно закодирует кириллицу (ровно один раз!)
     if text_top and text_bottom:
-        params = {"text[]": [clean_text(text_top), clean_text(text_bottom)]}
+        url = f"https://api.memegen.link/images/{template_id}/{clean_text(text_top)}/{clean_text(text_bottom)}.jpg"
     elif text_bottom:
-        params = {"text": clean_text(text_bottom)}
+        url = f"https://api.memegen.link/images/{template_id}/_/{clean_text(text_bottom)}.jpg"
     else:
-        params = {"text": "_"}
+        url = f"https://api.memegen.link/images/{template_id}/_/_ .jpg".replace(" ", "_")
         
-    logger.info(f"🔗 Параметры запроса: {params}")
+    logger.info(f"🔗 Финальный URL запроса: {url}")
     
-    # 5. Добавляем User-Agent для надежности
     headers = {
         "User-Agent": "MaxBot/1.0 (https://github.com/MDeniska/max-bot)"
     }
     
     try:
-        # requests сам корректно закодирует кириллицу в параметрах запроса
-        response = requests.get(url, params=params, headers=headers, timeout=15)
-        
-        # Логируем финальный URL, чтобы видеть, что именно было запрошено
-        logger.info(f"🔗 Финальный URL запроса: {response.url}")
+        response = requests.get(url, headers=headers, timeout=15)
         
         if response.status_code == 404:
-            raise Exception(f"Шаблон '{template_id}' не найден или ошибка формата. Попробуй другой текст.")
+            raise Exception(f"Шаблон '{template_id}' временно недоступен. Попробуй еще раз.")
         if response.status_code == 503:
-            raise Exception("Сервис мемов временно перегружен. Попробуй через минуту.")
+            raise Exception("Сервис мемов перегружен. Попробуй через минуту.")
             
         response.raise_for_status()
         
@@ -97,7 +85,7 @@ def generate_meme(text: str) -> bytes:
         raise Exception(f"Ошибка сервиса мемов: {response.status_code}")
     except Exception as e:
         logger.error(f"❌ Ошибка скачивания мема: {e}")
-        raise Exception(str(e))
+        raise Exception("Не удалось создать мем. Попробуй написать текст короче или использовать другой разделитель.")
 
 
 def upload_to_max_api(image_bytes):
