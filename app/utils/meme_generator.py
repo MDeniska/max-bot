@@ -40,7 +40,6 @@ def get_font(size=40):
                 return ImageFont.truetype(path, size)
             except Exception:
                 continue
-    # Если шрифт не найден, возвращаем стандартный (крайний случай)
     logger.warning("⚠️ Кириллический шрифт не найден, используется стандартный")
     return ImageFont.load_default()
 
@@ -48,9 +47,16 @@ def get_font(size=40):
 def generate_meme(text: str) -> bytes:
     """Генерирует мем локально с помощью Pillow"""
     
-    # 1. Умное разделение текста
-    if "|" in text:
-        parts = text.split("|", 1)
+    # 1. Умное разделение текста: ищем слэш, тире или вертикальную черту
+    separators = ['/', '|', '-', '—']
+    split_char = None
+    for sep in separators:
+        if sep in text:
+            split_char = sep
+            break
+            
+    if split_char:
+        parts = text.split(split_char, 1)
         text_top = parts[0].strip()
         text_bottom = parts[1].strip() if len(parts) > 1 else ""
     else:
@@ -66,7 +72,6 @@ def generate_meme(text: str) -> bytes:
     template_url = random.choice(TEMPLATES)
     
     try:
-        # Скачиваем шаблон
         response = requests.get(template_url, timeout=10)
         response.raise_for_status()
         img = Image.open(BytesIO(response.content)).convert("RGB")
@@ -78,7 +83,6 @@ def generate_meme(text: str) -> bytes:
     draw = ImageDraw.Draw(img)
     font = get_font(size=40)
     
-    # Функция для рисования текста с черной обводкой (классический стиль мемов)
     def draw_text_with_outline(position, text, font, fill="white", outline="black"):
         # Рисуем обводку (смещение на 1-2 пикселя во все стороны)
         for adj in range(-2, 3):
@@ -95,7 +99,7 @@ def generate_meme(text: str) -> bytes:
     if text_top:
         bbox = draw.textbbox((0, 0), text_top.upper(), font=font)
         text_width = bbox[2] - bbox[0]
-        x_top = max(10, (width - text_width) // 2) # Отступ 10px от края
+        x_top = max(10, (width - text_width) // 2)
         draw_text_with_outline((x_top, 15), text_top.upper(), font)
 
     # Рисуем нижний текст (по центру, внизу)
