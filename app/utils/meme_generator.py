@@ -1,6 +1,6 @@
 """
 Генератор мемов через memegen.link (Идеальный шрифт Impact, актуальные шаблоны)
-Использует query parameters (?text[]=...) для 100% надежной работы с кириллицей без редиректов.
+Использует правильные query parameters для 100% работы с кириллицей.
 """
 import requests
 import logging
@@ -28,12 +28,12 @@ CERT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../minif
 
 
 def clean_text(text: str) -> str:
-    """Заменяет пробелы на подчеркивания для корректного рендеринга в мемах"""
+    """Заменяет пробелы на подчеркивания для корректного рендеринга"""
     return text.replace(" ", "_")
 
 
 def generate_meme(text: str) -> bytes:
-    """Генерирует мем через memegen.link с использованием query parameters"""
+    """Генерирует мем через memegen.link с правильными параметрами"""
     
     # 1. Умное разделение текста по слэшу или тире
     separators = ['/', '-', '—', '|']
@@ -57,18 +57,19 @@ def generate_meme(text: str) -> bytes:
     # 2. Выбираем случайный шаблон
     template_id = random.choice(TEMPLATES)
     
-    # 3. Формируем базовый URL (БЕЗ текста в пути!)
+    # 3. Формируем базовый URL
     url = f"https://api.memegen.link/images/{template_id}.jpg"
     
-    # 4. Формируем параметры запроса. requests САМ корректно закодирует кириллицу здесь!
+    # 4. КРИТИЧЕСКИ ВАЖНО: правильные имена параметров для memegen.link
+    # Для двух строк используем массив text[], для одной строки - просто text
     if text_top and text_bottom:
         params = {"text[]": [clean_text(text_top), clean_text(text_bottom)]}
     elif text_bottom:
-        params = {"text[]": clean_text(text_bottom)}
+        params = {"text": clean_text(text_bottom)}
     else:
-        params = {"text[]": "_"}
+        params = {"text": "_"}
         
-    logger.info(f"🔗 Запрос к мем-генератору с params: {params}")
+    logger.info(f"🔗 Параметры запроса: {params}")
     
     # 5. Добавляем User-Agent для надежности
     headers = {
@@ -76,23 +77,27 @@ def generate_meme(text: str) -> bytes:
     }
     
     try:
-        # Передаем params. requests превратит это в ?text%5B%5D=%D0%A1%D1%83%D1%81%D0%BB%D0%B8%D0%BA_%D0%BF%D0%BE%D0%BB%D0%B5%D1%82%D0%B5%D0%BB
-        # Это 100% валидный запрос, который НЕ вызывает редиректы.
+        # requests сам корректно закодирует кириллицу в параметрах запроса
         response = requests.get(url, params=params, headers=headers, timeout=15)
         
+        # Логируем финальный URL, чтобы видеть, что именно было запрошено
+        logger.info(f"🔗 Финальный URL запроса: {response.url}")
+        
+        if response.status_code == 404:
+            raise Exception(f"Шаблон '{template_id}' не найден или ошибка формата. Попробуй другой текст.")
         if response.status_code == 503:
             raise Exception("Сервис мемов временно перегружен. Попробуй через минуту.")
+            
         response.raise_for_status()
         
         logger.info(f"✅ Мем успешно скачан ({len(response.content)} байт)")
         return response.content
+        
     except requests.exceptions.HTTPError as e:
-        if response.status_code == 400:
-            raise Exception("Слишком длинный текст для мема. Напиши короче!")
         raise Exception(f"Ошибка сервиса мемов: {response.status_code}")
     except Exception as e:
         logger.error(f"❌ Ошибка скачивания мема: {e}")
-        raise Exception("Не удалось создать мем. Попробуй другой текст или шаблон.")
+        raise Exception(str(e))
 
 
 def upload_to_max_api(image_bytes):
