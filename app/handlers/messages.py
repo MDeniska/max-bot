@@ -8,8 +8,8 @@ from flask import jsonify
 
 import database as db
 from app.utils import max_api
-from app.utils import huggingface_client   # Для аватарок (сохранение лица)
-from app.utils import kandinsky_client     # Для генерации картинок по тексту (понимает русский!)
+from app.utils import huggingface_client      # Для аватарок (сохранение лица)
+from app.utils import gigachat_image_client   # Для генерации картинок по тексту (GigaChat/Kandinsky)
 from app import keyboards
 from app import messages
 
@@ -55,7 +55,7 @@ def handle_message(data, chat_id, user_id, first_name):
             max_api.send_message(chat_id, messages.WELCOME_MESSAGE, attachments=keyboards.get_main_keyboard())
             return jsonify({"ok": True}), 200
         
-        # 5. СЦЕНАРИЙ: AI АВАТАРКИ (Ожидаем фото) -> ИСПОЛЬЗУЕМ HUGGING FACE
+        # 5. СЦЕНАРИЙ: AI АВАТАРКИ (Ожидаем фото)
         if state == 'avatar_waiting_photo':
             if incoming_image_url:
                 max_api.send_message(chat_id, "🎨 Получил фото! Магия начинается... Это займет 15-30 секунд.")
@@ -70,7 +70,7 @@ def handle_message(data, chat_id, user_id, first_name):
                     resp.raise_for_status()
                     original_bytes = resp.content
                     
-                    # Шаг Б: Отправляем в Hugging Face для стилизации с сохранением лица
+                    # Шаг Б: Отправляем в Hugging Face для стилизации
                     logger.info(f"🎨 Отправляем в Hugging Face (стиль: {style_key})...")
                     processed_bytes = huggingface_client.generate_avatar(original_bytes, style_key)
                     
@@ -96,31 +96,26 @@ def handle_message(data, chat_id, user_id, first_name):
                     logger.error(f"❌ Ошибка генерации аватара: {e}")
                     max_api.send_message(
                         chat_id, 
-                        f"❌ Упс, произошла ошибка: {str(e)}\n\n💡 *Совет:* Если модель 'проснулась', просто отправь фото еще раз!", 
+                        f"❌ Упс, произошла ошибка: {str(e)}\n\n💡 *Совет:* Если модель 'проснулась' или сеть недоступна, попробуй позже!", 
                         attachments=keyboards.get_back_keyboard()
                     )
                     db.set_user_state(user_id, 'idle')
             else:
-                # Пользователь отправил текст вместо фото
-                max_api.send_message(chat_id, "⚠️ Пожалуйста, отправь именно фотографию (нажми на скрепку 📎 или значок картинки).", attachments=keyboards.get_back_keyboard())
+                max_api.send_message(chat_id, "⚠️ Пожалуйста, отправь именно фотографию (нажми на скрепку 📎).", attachments=keyboards.get_back_keyboard())
         
-        # 6. СЦЕНАРИЙ: ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ -> ИСПОЛЬЗУЕМ KANDINSKY
+        # 6. СЦЕНАРИЙ: ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ (GIGACHAT / KANDINSKY)
         elif state == 'waiting_image_prompt':
             if text:
-                max_api.send_message(chat_id, "🎨 Кандинский рисует... Это займет 15-30 секунд.")
+                max_api.send_message(chat_id, "🎨 Кандинский (GigaChat) рисует... Это займет 15-30 секунд.")
                 
                 try:
-                    # Генерируем картинку через Кандинского (он нативно понимает русский!)
-                    logger.info(f"🎨 Отправляем запрос в Кандинский: '{text}'")
-                    processed_bytes = kandinsky_client.generate_image(
-                        prompt=text,
-                        width=1024,
-                        height=1024
-                    )
+                    # Генерируем картинку через официальный GigaChat API (понимает русский!)
+                    logger.info(f"🎨 Отправляем запрос в GigaChat: '{text}'")
+                    processed_bytes = gigachat_image_client.generate_image(prompt=text)
                     
                     # Загружаем результат в MAX
-                    logger.info("📤 Загружаем результат Кандинского в MAX API...")
-                    new_token = kandinsky_client.upload_to_max_api(processed_bytes)
+                    logger.info("📤 Загружаем результат в MAX API...")
+                    new_token = gigachat_image_client.upload_to_max_api(processed_bytes)
                     
                     if new_token:
                         max_api.send_image_message(
@@ -137,14 +132,14 @@ def handle_message(data, chat_id, user_id, first_name):
                     logger.error(f"❌ Ошибка генерации картинки: {e}")
                     max_api.send_message(
                         chat_id, 
-                        f"❌ Упс, ошибка: {str(e)}\n\n💡 *Совет:* Если модель 'проснулась', просто отправь запрос еще раз!", 
+                        f"❌ Упс, ошибка: {str(e)}\n\n💡 *Совет:* Если модель 'просыпается', просто отправь запрос еще раз через 20 секунд!", 
                         attachments=keyboards.get_back_keyboard()
                     )
                     db.set_user_state(user_id, 'idle')
             else:
                 max_api.send_message(chat_id, "⚠️ Пожалуйста, опиши картинку текстом.", attachments=keyboards.get_back_keyboard())
         
-        # 7. СОСТОЯНИЕ ПО УМОЛЧАНИЮ (если пользователь пишет что-то вне сценария)
+        # 7. СОСТОЯНИЕ ПО УМОЛЧАНИЮ
         else:
             max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
         
