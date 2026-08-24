@@ -10,8 +10,16 @@ import re
 
 logger = logging.getLogger("bot")
 
+# Берем готовый ключ авторизации (или собираем из ID/Secret, если ключ не задан)
+AUTH_KEY = os.getenv("GIGACHAT_AUTH_KEY", "")
 CLIENT_ID = os.getenv("GIGACHAT_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("GIGACHAT_CLIENT_SECRET", "")
+
+if AUTH_KEY:
+    BASIC_AUTH = f"Basic {AUTH_KEY}"
+else:
+    encoded_credentials = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode('utf-8')).decode('utf-8')
+    BASIC_AUTH = f"Basic {encoded_credentials}"
 
 AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 API_URL = "https://gigachat.devices.sberbank.ru/api/v1/chat/completions"
@@ -26,8 +34,8 @@ def get_gigachat_token() -> str:
     auth_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
-        "RqUID": CLIENT_ID,
-        "Authorization": f"Basic {base64.b64encode(f'{CLIENT_ID}:{CLIENT_SECRET}'.encode('utf-8')).decode('utf-8')}"
+        "RqUID": CLIENT_ID or "default-rquid",
+        "Authorization": BASIC_AUTH
     }
     
     try:
@@ -102,9 +110,10 @@ def generate_image(prompt: str) -> bytes:
         file_response.raise_for_status()
         
         # 4. Декодируем base64
-        image_b64 = file_response.json().get("content", "")
+        file_data = file_response.json()
+        image_b64 = file_data.get("content", "")
         if not image_b64:
-            raise Exception("Пустой ответ при скачивании файла")
+            raise Exception(f"Пустой ответ при скачивании файла. Данные: {file_data}")
             
         image_bytes = base64.b64decode(image_b64)
         logger.info(f"✅ Картинка успешно получена ({len(image_bytes)} байт)")
