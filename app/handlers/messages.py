@@ -10,6 +10,7 @@ import database as db
 from app.utils import max_api
 from app.utils import huggingface_client   # Для аватарок (сохранение лица)
 from app.utils import stable_horde_client  # Для генерации по тексту
+from app.utils import meme_generator       # Для мемов
 from app import keyboards
 from app import messages
 
@@ -144,7 +145,42 @@ def handle_message(data, chat_id, user_id, first_name):
             else:
                 max_api.send_message(chat_id, "⚠️ Пожалуйста, напиши описание картинки текстом.", attachments=keyboards.get_back_keyboard())
         
-        # 7. СОСТОЯНИЕ ПО УМОЛЧАНИЮ (если пользователь пишет что-то вне сценария)
+        # 7. СЦЕНАРИЙ: ГЕНЕРАТОР МЕМОВ -> ИСПОЛЬЗУЕМ MEME_GENERATOR
+        elif state == 'waiting_meme_text':
+            if text:
+                max_api.send_message(chat_id, "🎨 Леплю мем... Секунду!")
+                
+                try:
+                    # 1. Генерируем мем
+                    meme_bytes = meme_generator.generate_meme(text)
+                    
+                    # 2. Загружаем в MAX
+                    new_token = meme_generator.upload_to_max_api(meme_bytes)
+                    
+                    if new_token:
+                        max_api.send_image_message(
+                            chat_id, 
+                            "Держи свой мем! 😂\n\nХочешь еще? Отправь новый текст или жми 'Главное меню'.", 
+                            new_token
+                        )
+                    else:
+                        raise Exception("Не удалось загрузить мем в MAX API")
+                        
+                    # Возвращаем в главное меню после отправки
+                    db.set_user_state(user_id, 'idle')
+                    
+                except Exception as e:
+                    logger.error(f"❌ Ошибка генерации мема: {e}")
+                    max_api.send_message(
+                        chat_id, 
+                        f"❌ Упс, ошибка: {str(e)}\n\nПопробуй написать текст короче или используй формат 'Текст | Текст'.", 
+                        attachments=keyboards.get_back_keyboard()
+                    )
+                    db.set_user_state(user_id, 'idle')
+            else:
+                max_api.send_message(chat_id, "⚠️ Пожалуйста, напиши текст для мема.", attachments=keyboards.get_back_keyboard())
+        
+        # 8. СОСТОЯНИЕ ПО УМОЛЧАНИЮ (если пользователь пишет что-то вне сценария)
         else:
             max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
         
