@@ -3,7 +3,7 @@
 """
 
 def get_main_keyboard():
-    """Главное меню: строго 6 кнопок (2 колонки, 3 ряда)"""
+    """Главное меню: строго 3 ряда по 2 кнопки"""
     return [{
         "type": "inline_keyboard",
         "payload": {
@@ -25,7 +25,7 @@ def get_main_keyboard():
     }]
 
 def get_back_keyboard():
-    """Кнопка возврата в главное меню"""
+    """Кнопка возврата в главное меню (1 ряд, 1 кнопка по центру)"""
     return [{
         "type": "inline_keyboard",
         "payload": {
@@ -36,7 +36,7 @@ def get_back_keyboard():
     }]
 
 def get_avatar_styles_keyboard():
-    """Выбор стиля для AI Аватарки (2x2)"""
+    """Выбор стиля для AI Аватарки (2 ряда по 2 кнопки)"""
     return [{
         "type": "inline_keyboard",
         "payload": {
