@@ -1,5 +1,6 @@
 """
-Обработчики текстовых сообщений и фото
+Обработчики текстовых сообщений и фото. 
+Упрощенная логика: любая непонятная команда просто показывает главное меню.
 """
 import logging
 import json
@@ -44,13 +45,13 @@ def handle_message(data, chat_id, user_id, first_name):
         if user_id and chat_id:
             db.save_chat_id(user_id, chat_id)
         
-        # ИСПРАВЛЕНИЕ: startswith ловит и "/start", и "/start@botname"
-        if text.lower().startswith("/start"):
+        # 1. УМНАЯ ОБРАБОТКА СТАРТА: ловит /start, Start, start и т.д.
+        if "start" in text.lower():
             db.set_user_state(user_id, 'idle')
             max_api.send_message(chat_id, messages.WELCOME_MESSAGE, attachments=keyboards.get_main_keyboard())
             return jsonify({"ok": True}), 200
         
-        # --- 1. ОПИСАНИЕ ДЛЯ AI АВАТАРКИ ---
+        # 2. ОПИСАНИЕ ДЛЯ AI АВАТАРКИ
         if state == 'avatar_describing':
             db.save_temp_data(user_id, text)
             db.set_user_state(user_id, 'avatar_choosing_style')
@@ -60,7 +61,7 @@ def handle_message(data, chat_id, user_id, first_name):
                 attachments=keyboards.get_avatar_styles_keyboard()
             )
 
-        # --- 2. ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ ---
+        # 3. ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ
         elif state == 'waiting_image_prompt':
             if text:
                 max_api.send_message(chat_id, "🎨 Кандинский рисует... Это займет 15-30 секунд.")
@@ -77,7 +78,7 @@ def handle_message(data, chat_id, user_id, first_name):
                     max_api.send_message(chat_id, f"❌ Упс, ошибка: {str(e)}\n\n💡 *Совет:* Подожди 30 сек и отправь запрос еще раз!", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
 
-        # --- 3. ГЕНЕРАТОР МЕМОВ ---
+        # 4. ГЕНЕРАТОР МЕМОВ
         elif state == 'waiting_meme_text':
             if text:
                 max_api.send_message(chat_id, "🎨 Леплю мем... Секунду!")
@@ -93,7 +94,7 @@ def handle_message(data, chat_id, user_id, first_name):
                     max_api.send_message(chat_id, f"❌ Ошибка: {str(e)}", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
 
-        # --- 4. AI СОБЕСЕДНИК ---
+        # 5. AI СОБЕСЕДНИК
         elif state == 'waiting_chat_prompt':
             if text:
                 max_api.send_message(chat_id, "💬 Думаю над ответом...")
@@ -117,7 +118,7 @@ def handle_message(data, chat_id, user_id, first_name):
                     max_api.send_message(chat_id, f"❌ Ошибка: {str(e)}", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
 
-        # --- 5. AI КОНТЕНТ ---
+        # 6. AI КОНТЕНТ
         elif state == 'waiting_content_prompt':
             if text:
                 max_api.send_message(chat_id, "📝 Пишу качественный текст...")
@@ -141,9 +142,10 @@ def handle_message(data, chat_id, user_id, first_name):
                     max_api.send_message(chat_id, f"❌ Ошибка: {str(e)}", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
 
-        # --- ПО УМОЛЧАНИЮ ---
+        # 7. ПО УМОЛЧАНИЮ (если команда не распознана или состояние idle)
         else:
-            max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
+            # ПРОСТО ПОКАЗЫВАЕМ ГЛАВНОЕ МЕНЮ БЕЗ ЛИШНИХ ФРАЗ
+            max_api.send_message(chat_id, "🏠 Главное меню:", attachments=keyboards.get_main_keyboard())
         
         return jsonify({"ok": True}), 200
     
