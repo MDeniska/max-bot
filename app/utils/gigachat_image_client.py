@@ -7,16 +7,21 @@ import logging
 import requests
 import base64
 import re
+import uuid
 
 logger = logging.getLogger("bot")
 
-# Берем готовый ключ авторизации (или собираем из ID/Secret, если ключ не задан)
-AUTH_KEY = os.getenv("GIGACHAT_AUTH_KEY", "")
-CLIENT_ID = os.getenv("GIGACHAT_CLIENT_ID", "")
-CLIENT_SECRET = os.getenv("GIGACHAT_CLIENT_SECRET", "")
+# Получаем ключи из переменных окружения
+AUTH_KEY = os.getenv("GIGACHAT_AUTH_KEY", "").strip()
+CLIENT_ID = os.getenv("GIGACHAT_CLIENT_ID", "").strip()
+CLIENT_SECRET = os.getenv("GIGACHAT_CLIENT_SECRET", "").strip()
 
+# Формируем заголовок Authorization
 if AUTH_KEY:
-    BASIC_AUTH = f"Basic {AUTH_KEY}"
+    if AUTH_KEY.startswith("Basic "):
+        BASIC_AUTH = AUTH_KEY
+    else:
+        BASIC_AUTH = f"Basic {AUTH_KEY}"
 else:
     encoded_credentials = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode('utf-8')).decode('utf-8')
     BASIC_AUTH = f"Basic {encoded_credentials}"
@@ -34,21 +39,42 @@ def get_gigachat_token() -> str:
     auth_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
-        "RqUID": CLIENT_ID or "default-rquid",
+        "RqUID": str(uuid.uuid4()), # КРИТИЧЕСКИ ВАЖНО: валидный UUID v4
         "Authorization": BASIC_AUTH
     }
     
     try:
-        response = requests.post(AUTH_URL, headers=auth_headers, data={"scope": "GIGACHAT_API_PERS"}, timeout=10, verify=CERT_PATH)
+        # Передаем scope как строку form-data
+        response = requests.post(
+            AUTH_URL, 
+            headers=auth_headers, 
+            data="scope=GIGACHAT_API_PERS", 
+            timeout=10, 
+            verify=CERT_PATH
+        )
         response.raise_for_status()
         token = response.json().get("access_token")
         logger.info("✅ Токен GigaChat успешно получен")
         return token
-    except Exception as e:
-        logger.warning(f"⚠️ Ошибка с сертификатом, пробуем без проверки: {e}")
-        response = requests.post(AUTH_URL, headers=auth_headers, data={"scope": "GIGACHAT_API_PERS"}, timeout=10, verify=False)
-        response.raise_for_status()
-        return response.json().get("access_token")
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"⚠️ Ошибка запроса токена (сертификат). Пробуем без проверки...")
+        try:
+            response = requests.post(
+                AUTH_URL, 
+                headers=auth_headers, 
+                data="scope=GIGACHAT_API_PERS", 
+                timeout=10, 
+                verify=False
+            )
+            response.raise_for_status()
+            token = response.json().get("access_token")
+            logger.info("✅ Токен GigaChat успешно получен (без проверки сертификата)")
+            return token
+        except requests.exceptions.RequestException as e2:
+            logger.error(f"❌ Ошибка получения токена GigaChat: {e2}")
+            if hasattr(e2, 'response') and e2.response is not None:
+                logger.error(f"Ответ сервера Сбера: {e2.response.text}")
+            raise Exception(f"Не удалось авторизоваться в GigaChat. Проверь ключ GIGACHAT_AUTH_KEY.")
 
 
 def generate_image(prompt: str) -> bytes:
