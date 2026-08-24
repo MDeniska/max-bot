@@ -1,6 +1,6 @@
 """
 Генератор мемов через memegen.link (Идеальный шрифт Impact, актуальные шаблоны)
-Без ручного кодирования URL, чтобы избежать циклических редиректов.
+Использует query parameters (?text[]=...) для 100% надежной работы с кириллицей без редиректов.
 """
 import requests
 import logging
@@ -28,12 +28,12 @@ CERT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../minif
 
 
 def clean_text(text: str) -> str:
-    """Заменяет пробелы на подчеркивания, как требует memegen.link"""
-    return "_".join(text.split())
+    """Заменяет пробелы на подчеркивания для корректного рендеринга в мемах"""
+    return text.replace(" ", "_")
 
 
 def generate_meme(text: str) -> bytes:
-    """Генерирует мем через memegen.link"""
+    """Генерирует мем через memegen.link с использованием query parameters"""
     
     # 1. Умное разделение текста по слэшу или тире
     separators = ['/', '-', '—', '|']
@@ -57,30 +57,29 @@ def generate_meme(text: str) -> bytes:
     # 2. Выбираем случайный шаблон
     template_id = random.choice(TEMPLATES)
     
-    # 3. Очищаем текст (пробелы -> подчеркивания). Пустой текст заменяем на "_"
-    top_clean = clean_text(text_top) if text_top else "_"
-    bottom_clean = clean_text(text_bottom) if text_bottom else "_"
+    # 3. Формируем базовый URL (БЕЗ текста в пути!)
+    url = f"https://api.memegen.link/images/{template_id}.jpg"
     
-    # 4. Формируем URL. Библиотека requests САМА корректно закодирует кириллицу.
+    # 4. Формируем параметры запроса. requests САМ корректно закодирует кириллицу здесь!
     if text_top and text_bottom:
-        url = f"https://api.memegen.link/images/{template_id}/{top_clean}/{bottom_clean}.jpg"
+        params = {"text[]": [clean_text(text_top), clean_text(text_bottom)]}
+    elif text_bottom:
+        params = {"text[]": clean_text(text_bottom)}
     else:
-        url = f"https://api.memegen.link/images/{template_id}/{bottom_clean}.jpg"
+        params = {"text[]": "_"}
         
-    logger.info(f"🔗 URL мема: {url}")
+    logger.info(f"🔗 Запрос к мем-генератору с params: {params}")
     
-    # 5. Добавляем User-Agent, чтобы нас не блокировали как бота
+    # 5. Добавляем User-Agent для надежности
     headers = {
         "User-Agent": "MaxBot/1.0 (https://github.com/MDeniska/max-bot)"
     }
     
     try:
-        response = requests.get(url, headers=headers, timeout=15)
+        # Передаем params. requests превратит это в ?text%5B%5D=%D0%A1%D1%83%D1%81%D0%BB%D0%B8%D0%BA_%D0%BF%D0%BE%D0%BB%D0%B5%D1%82%D0%B5%D0%BB
+        # Это 100% валидный запрос, который НЕ вызывает редиректы.
+        response = requests.get(url, params=params, headers=headers, timeout=15)
         
-        # Проверка на множественные редиректы (на всякий случай)
-        if len(response.history) > 5:
-            logger.warning(f"⚠️ Множественные редиректы: {[r.status_code for r in response.history]}")
-            
         if response.status_code == 503:
             raise Exception("Сервис мемов временно перегружен. Попробуй через минуту.")
         response.raise_for_status()
