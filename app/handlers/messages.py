@@ -9,7 +9,7 @@ from flask import jsonify
 import database as db
 from app.utils import max_api
 from app.utils import huggingface_client   # Для аватарок (сохранение лица)
-from app.utils import stable_horde_client  # Для генерации по тексту
+from app.utils import kandinsky_client  # Для генерации по тексту
 from app.utils import meme_generator       # Для мемов
 from app import keyboards
 from app import messages
