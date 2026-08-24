@@ -1,12 +1,11 @@
 """
 Генератор мемов через memegen.link (Идеальный шрифт Impact, актуальные шаблоны)
-С правильной URL-кодировкой кириллицы для предотвращения ошибок редиректа.
+Без ручного кодирования URL, чтобы избежать циклических редиректов.
 """
 import requests
 import logging
 import random
 import os
-import urllib.parse
 
 logger = logging.getLogger("bot")
 
@@ -28,14 +27,13 @@ BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 CERT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../minifry_certs.pem"))
 
 
-def clean_text_for_meme(text: str) -> str:
-    """Подготавливает текст: убирает лишние пробелы и заменяет их на подчеркивания"""
-    clean = " ".join(text.split())
-    return clean.replace(" ", "_")
+def clean_text(text: str) -> str:
+    """Заменяет пробелы на подчеркивания, как требует memegen.link"""
+    return "_".join(text.split())
 
 
 def generate_meme(text: str) -> bytes:
-    """Генерирует мем через memegen.link с правильной кодировкой URL"""
+    """Генерирует мем через memegen.link"""
     
     # 1. Умное разделение текста по слэшу или тире
     separators = ['/', '-', '—', '|']
@@ -59,24 +57,30 @@ def generate_meme(text: str) -> bytes:
     # 2. Выбираем случайный шаблон
     template_id = random.choice(TEMPLATES)
     
-    # 3. КРИТИЧЕСКИ ВАЖНО: URL-кодируем кириллицу!
-    top_encoded = urllib.parse.quote(clean_text_for_meme(text_top))
-    bottom_encoded = urllib.parse.quote(clean_text_for_meme(text_bottom))
+    # 3. Очищаем текст (пробелы -> подчеркивания). Пустой текст заменяем на "_"
+    top_clean = clean_text(text_top) if text_top else "_"
+    bottom_clean = clean_text(text_bottom) if text_bottom else "_"
     
-    # Формируем финальный URL
-    if top_encoded and bottom_encoded:
-        url = f"https://api.memegen.link/images/{template_id}/{top_encoded}/{bottom_encoded}.jpg"
-    elif bottom_encoded:
-        url = f"https://api.memegen.link/images/{template_id}/{bottom_encoded}.jpg"
+    # 4. Формируем URL. Библиотека requests САМА корректно закодирует кириллицу.
+    if text_top and text_bottom:
+        url = f"https://api.memegen.link/images/{template_id}/{top_clean}/{bottom_clean}.jpg"
     else:
-        url = f"https://api.memegen.link/images/{template_id}/_.jpg"
+        url = f"https://api.memegen.link/images/{template_id}/{bottom_clean}.jpg"
         
     logger.info(f"🔗 URL мема: {url}")
     
-    # 4. Скачиваем готовый мем с идеальным шрифтом Impact
+    # 5. Добавляем User-Agent, чтобы нас не блокировали как бота
+    headers = {
+        "User-Agent": "MaxBot/1.0 (https://github.com/MDeniska/max-bot)"
+    }
+    
     try:
-        # allow_redirects=True по умолчанию, но теперь URL корректный и редиректов не будет
-        response = requests.get(url, timeout=15)
+        response = requests.get(url, headers=headers, timeout=15)
+        
+        # Проверка на множественные редиректы (на всякий случай)
+        if len(response.history) > 5:
+            logger.warning(f"⚠️ Множественные редиректы: {[r.status_code for r in response.history]}")
+            
         if response.status_code == 503:
             raise Exception("Сервис мемов временно перегружен. Попробуй через минуту.")
         response.raise_for_status()
