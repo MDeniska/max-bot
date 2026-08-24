@@ -48,7 +48,7 @@ def handle_callback(data, chat_id, user_id, first_name, callback_id):
         max_api.answer_callback(callback_id, "Готов к творчеству!")
         max_api.send_message(
             chat_id, 
-            "🖼️ Опиши словами, что ты хочешь увидеть.\n\n*Например:* 'Кот в скафандре на Луне, фотореалистично'", 
+            "🖼️ Опиши словами, что ты хочешь увидеть.\n\n*Например:* 'Кот в скафандре на Луне, фотореалистично' или 'Закат в киберпанк-городе'", 
             attachments=keyboards.get_back_keyboard()
         )
     
@@ -62,14 +62,36 @@ def handle_callback(data, chat_id, user_id, first_name, callback_id):
             "💡 *Формат:* `Текст сверху / Текст снизу`\n"
             "*(Используй слэш `/` или тире `-` как разделитель)*\n\n"
             "Пример: `Когда написал код / И он заработал с первого раза`\n"
-            "Если не ставить разделитель, я сам красиво разобью текст 😉", 
+            "Если не ставить разделитель, текст будет только снизу.", 
             attachments=keyboards.get_back_keyboard()
         )
     
     # --- AI ГОРОСКОП (заглушка) ---
     elif data == "ai_horoscope":
         max_api.answer_callback(callback_id, "Функция в разработке 🛠️")
-        max_api.send_message(chat_id, "🔮 AI Гороскоп скоро будет доступен! Следите за обновлениями.", attachments=keyboards.get_back_keyboard())
+        max_api.send_message(
+            chat_id, 
+            "🔮 AI Гороскоп скоро будет доступен! Следите за обновлениями.", 
+            attachments=keyboards.get_back_keyboard()
+        )
+    
+    # --- AI СОБЕСЕДНИК (заглушка) ---
+    elif data == "ai_chat":
+        max_api.answer_callback(callback_id, "Функция в разработке 🛠️")
+        max_api.send_message(
+            chat_id, 
+            "🤖 AI Собеседник скоро будет доступен! Следите за обновлениями.", 
+            attachments=keyboards.get_back_keyboard()
+        )
+    
+    # --- AI КОНТЕНТ (заглушка) ---
+    elif data == "ai_content":
+        max_api.answer_callback(callback_id, "Функция в разработке 🛠️")
+        max_api.send_message(
+            chat_id, 
+            "📝 AI Контент скоро будет доступен! Следите за обновлениями.", 
+            attachments=keyboards.get_back_keyboard()
+        )
     
     else:
         max_api.answer_callback(callback_id, "Функция в разработке 🛠️")
