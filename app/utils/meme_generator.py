@@ -1,71 +1,116 @@
 """
-Генератор мемов через memegen.link (быстро, бесплатно, без очередей)
+Автономный генератор мемов с помощью Pillow
+Работает мгновенно, без внешних API, с поддержкой кириллицы и обводкой текста.
 """
 import requests
 import logging
 import random
-import urllib.parse
 import os
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger("bot")
 
-# Список популярных и безопасных шаблонов (ID из memegen.link)
-POPULAR_TEMPLATES = [
-    "drake",             # Drake Hotline Bling
-    "distracted",        # Distracted Boyfriend
-    "change_my_mind",    # Change My Mind
-    "is_this",           # Is this a pigeon?
-    "two_buttons",       # Two Buttons
-    "left_exit_12",      # Left Exit 12
-    "success_kid",       # Success Kid
-    "roll_safe",         # Roll Safe
-    "one_does_not_simply", # One Does Not Simply
-    "ancient_aliens"     # Ancient Aliens
+# Надежные URL популярных шаблонов мемов (Imgflip)
+TEMPLATES = [
+    "https://i.imgflip.com/30b1gx.jpg",  # Drake Hotline Bling
+    "https://i.imgflip.com/1ur9b0.jpg",  # Distracted Boyfriend
+    "https://i.imgflip.com/261o3j.jpg",  # Buff Doge vs. Cheems
+    "https://i.imgflip.com/4t0m5.jpg",   # Success Kid
+    "https://i.imgflip.com/1g8my4.jpg",  # Two Buttons
+    "https://i.imgflip.com/26am.jpg",    # Ancient Aliens
 ]
 
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 CERT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../minifry_certs.pem"))
 
 
+def get_font(size=40):
+    """Пытается загрузить шрифт с поддержкой кириллицы из стандартных путей Linux"""
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "arial.ttf"
+    ]
+    for path in font_paths:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    # Если шрифт не найден, возвращаем стандартный (крайний случай)
+    logger.warning("⚠️ Кириллический шрифт не найден, используется стандартный")
+    return ImageFont.load_default()
+
+
 def generate_meme(text: str) -> bytes:
-    """Генерирует мем и возвращает его байты"""
+    """Генерирует мем локально с помощью Pillow"""
     
-    # 1. Разделяем текст на верхний и нижний (по разделителю |)
+    # 1. Умное разделение текста
     if "|" in text:
         parts = text.split("|", 1)
-        text0 = parts[0].strip()
-        text1 = parts[1].strip() if len(parts) > 1 else ""
+        text_top = parts[0].strip()
+        text_bottom = parts[1].strip() if len(parts) > 1 else ""
     else:
-        # Если разделителя нет, весь текст идет вниз, а сверху классическое "Когда..."
-        text0 = "Когда"
-        text1 = text.strip()
-    
+        # Если разделителя нет, разбиваем длинный текст пополам для баланса
+        words = text.split()
+        mid = len(words) // 2
+        text_top = " ".join(words[:mid]) if mid > 0 else "Когда"
+        text_bottom = " ".join(words[mid:]) if mid < len(words) else text
+
+    logger.info(f"🎭 Генерация мема: верх='{text_top}', низ='{text_bottom}'")
+
     # 2. Выбираем случайный шаблон
-    template_id = random.choice(POPULAR_TEMPLATES)
-    logger.info(f"🎭 Генерация мема: шаблон='{template_id}', верх='{text0}', низ='{text1}'")
+    template_url = random.choice(TEMPLATES)
     
-    # 3. Кодируем текст для URL (поддержка русского языка)
-    encoded_text0 = urllib.parse.quote(text0, safe='')
-    encoded_text1 = urllib.parse.quote(text1, safe='')
-    
-    # 4. Формируем URL (memegen.link сам рендерит картинку по URL)
-    # Если нижнего текста нет, URL выглядит как /images/template/text0.jpg
-    if encoded_text1:
-        url = f"https://api.memegen.link/images/{template_id}/{encoded_text0}/{encoded_text1}.jpg"
-    else:
-        url = f"https://api.memegen.link/images/{template_id}/{encoded_text0}.jpg"
-    
-    logger.info(f"🔗 URL мема: {url}")
-    
-    # 5. Скачиваем готовую картинку
     try:
-        response = requests.get(url, timeout=10)
+        # Скачиваем шаблон
+        response = requests.get(template_url, timeout=10)
         response.raise_for_status()
-        logger.info(f"✅ Мем успешно скачан ({len(response.content)} байт)")
-        return response.content
+        img = Image.open(BytesIO(response.content)).convert("RGB")
     except Exception as e:
-        logger.error(f"❌ Ошибка скачивания мема: {e}")
-        raise Exception("Не удалось создать мем. Попробуй другой текст.")
+        logger.error(f"❌ Ошибка скачивания шаблона: {e}")
+        raise Exception("Не удалось загрузить шаблон мема. Попробуй еще раз.")
+
+    # 3. Рисуем текст
+    draw = ImageDraw.Draw(img)
+    font = get_font(size=40)
+    
+    # Функция для рисования текста с черной обводкой (классический стиль мемов)
+    def draw_text_with_outline(position, text, font, fill="white", outline="black"):
+        # Рисуем обводку (смещение на 1-2 пикселя во все стороны)
+        for adj in range(-2, 3):
+            for opp in range(-2, 3):
+                if adj == 0 and opp == 0:
+                    continue
+                draw.text((position[0]+adj, position[1]+opp), text, font=font, fill=outline)
+        # Рисуем основной белый текст поверх обводки
+        draw.text(position, text, font=font, fill=fill)
+
+    width, height = img.size
+    
+    # Рисуем верхний текст (по центру)
+    if text_top:
+        bbox = draw.textbbox((0, 0), text_top.upper(), font=font)
+        text_width = bbox[2] - bbox[0]
+        x_top = max(10, (width - text_width) // 2) # Отступ 10px от края
+        draw_text_with_outline((x_top, 15), text_top.upper(), font)
+
+    # Рисуем нижний текст (по центру, внизу)
+    if text_bottom:
+        bbox = draw.textbbox((0, 0), text_bottom.upper(), font=font)
+        text_width = bbox[2] - bbox[0]
+        x_bottom = max(10, (width - text_width) // 2)
+        y_bottom = height - 55
+        draw_text_with_outline((x_bottom, y_bottom), text_bottom.upper(), font)
+
+    # 4. Сохраняем в байты
+    output = BytesIO()
+    img.save(output, format="JPEG", quality=90)
+    logger.info(f"✅ Мем успешно сгенерирован ({len(output.getvalue())} байт)")
+    return output.getvalue()
 
 
 def upload_to_max_api(image_bytes):
