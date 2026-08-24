@@ -39,12 +39,11 @@ def get_gigachat_token() -> str:
     auth_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
-        "RqUID": str(uuid.uuid4()), # КРИТИЧЕСКИ ВАЖНО: валидный UUID v4
+        "RqUID": str(uuid.uuid4()), # Валидный UUID v4
         "Authorization": BASIC_AUTH
     }
     
     try:
-        # Передаем scope как строку form-data
         response = requests.post(
             AUTH_URL, 
             headers=auth_headers, 
@@ -121,13 +120,13 @@ def generate_image(prompt: str) -> bytes:
         file_id = match.group(1)
         logger.info(f"✅ Получен file_id изображения: {file_id}")
         
-        # 3. Скачиваем изображение по file_id
+        # 3. Скачиваем изображение по file_id (ИСПРАВЛЕНО: используем GET вместо POST)
         file_headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/jpg"
         }
         
-        file_response = requests.post(
+        file_response = requests.get(  # <--- ЗДЕСЬ БЫЛО ИСПРАВЛЕНО НА GET
             FILE_URL.format(file_id),
             headers=file_headers,
             timeout=30,
@@ -145,6 +144,11 @@ def generate_image(prompt: str) -> bytes:
         logger.info(f"✅ Картинка успешно получена ({len(image_bytes)} байт)")
         return image_bytes
         
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            raise Exception("Слишком много запросов. Пожалуйста, подожди 30 секунд и попробуй снова.")
+        logger.error(f"❌ Ошибка HTTP GigaChat: {e}")
+        raise Exception(f"Сбой генерации: {e}")
     except Exception as e:
         logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА GIGACHAT: {str(e)}")
         raise Exception(f"Сбой генерации: {str(e)}")
