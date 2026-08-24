@@ -9,8 +9,7 @@ from flask import jsonify
 import database as db
 from app.utils import max_api
 from app.utils import huggingface_client   # Для аватарок (сохранение лица)
-from app.utils import kandinsky_client  # Для генерации по тексту
-from app.utils import meme_generator       # Для мемов
+from app.utils import kandinsky_client     # Для генерации картинок по тексту (понимает русский!)
 from app import keyboards
 from app import messages
 
@@ -105,28 +104,28 @@ def handle_message(data, chat_id, user_id, first_name):
                 # Пользователь отправил текст вместо фото
                 max_api.send_message(chat_id, "⚠️ Пожалуйста, отправь именно фотографию (нажми на скрепку 📎 или значок картинки).", attachments=keyboards.get_back_keyboard())
         
-        # 6. СЦЕНАРИЙ: ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ -> ИСПОЛЬЗУЕМ STABLE HORDE
+        # 6. СЦЕНАРИЙ: ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ -> ИСПОЛЬЗУЕМ KANDINSKY
         elif state == 'waiting_image_prompt':
             if text:
-                max_api.send_message(chat_id, "🎨 Магия начинается... Рисую по твоему описанию. Это займет 20-40 секунд.")
+                max_api.send_message(chat_id, "🎨 Кандинский рисует... Это займет 15-30 секунд.")
                 
                 try:
-                    # Генерируем картинку по тексту (512x512 для скорости и бесплатных лимитов)
-                    processed_bytes = stable_horde_client.generate_image_from_text(
+                    # Генерируем картинку через Кандинского (он нативно понимает русский!)
+                    logger.info(f"🎨 Отправляем запрос в Кандинский: '{text}'")
+                    processed_bytes = kandinsky_client.generate_image(
                         prompt=text,
-                        width=512,
-                        height=512
+                        width=1024,
+                        height=1024
                     )
                     
-                    if not processed_bytes:
-                        raise Exception("Сервис генерации не вернул изображение. Попробуй изменить запрос.")
-                    
-                    new_token = stable_horde_client.upload_to_max_api(processed_bytes)
+                    # Загружаем результат в MAX
+                    logger.info("📤 Загружаем результат Кандинского в MAX API...")
+                    new_token = kandinsky_client.upload_to_max_api(processed_bytes)
                     
                     if new_token:
                         max_api.send_image_message(
                             chat_id, 
-                            f"✨ Готово! Вот что получилось по запросу:\n\n*{text}*", 
+                            f"✨ Готово! Шедевр по твоему запросу:\n\n*{text}*", 
                             new_token
                         )
                     else:
@@ -138,49 +137,14 @@ def handle_message(data, chat_id, user_id, first_name):
                     logger.error(f"❌ Ошибка генерации картинки: {e}")
                     max_api.send_message(
                         chat_id, 
-                        f"❌ Упс, ошибка: {str(e)}\n\nПопробуй описать картинку другими словами.", 
+                        f"❌ Упс, ошибка: {str(e)}\n\n💡 *Совет:* Если модель 'проснулась', просто отправь запрос еще раз!", 
                         attachments=keyboards.get_back_keyboard()
                     )
                     db.set_user_state(user_id, 'idle')
             else:
-                max_api.send_message(chat_id, "⚠️ Пожалуйста, напиши описание картинки текстом.", attachments=keyboards.get_back_keyboard())
+                max_api.send_message(chat_id, "⚠️ Пожалуйста, опиши картинку текстом.", attachments=keyboards.get_back_keyboard())
         
-        # 7. СЦЕНАРИЙ: ГЕНЕРАТОР МЕМОВ -> ИСПОЛЬЗУЕМ MEME_GENERATOR
-        elif state == 'waiting_meme_text':
-            if text:
-                max_api.send_message(chat_id, "🎨 Леплю мем... Секунду!")
-                
-                try:
-                    # 1. Генерируем мем
-                    meme_bytes = meme_generator.generate_meme(text)
-                    
-                    # 2. Загружаем в MAX
-                    new_token = meme_generator.upload_to_max_api(meme_bytes)
-                    
-                    if new_token:
-                        max_api.send_image_message(
-                            chat_id, 
-                            "Держи свой мем! 😂\n\nХочешь еще? Отправь новый текст или жми 'Главное меню'.", 
-                            new_token
-                        )
-                    else:
-                        raise Exception("Не удалось загрузить мем в MAX API")
-                        
-                    # Возвращаем в главное меню после отправки
-                    db.set_user_state(user_id, 'idle')
-                    
-                except Exception as e:
-                    logger.error(f"❌ Ошибка генерации мема: {e}")
-                    max_api.send_message(
-                        chat_id, 
-                        f"❌ Упс, ошибка: {str(e)}\n\nПопробуй написать текст короче или используй формат 'Текст | Текст'.", 
-                        attachments=keyboards.get_back_keyboard()
-                    )
-                    db.set_user_state(user_id, 'idle')
-            else:
-                max_api.send_message(chat_id, "⚠️ Пожалуйста, напиши текст для мема.", attachments=keyboards.get_back_keyboard())
-        
-        # 8. СОСТОЯНИЕ ПО УМОЛЧАНИЮ (если пользователь пишет что-то вне сценария)
+        # 7. СОСТОЯНИЕ ПО УМОЛЧАНИЮ (если пользователь пишет что-то вне сценария)
         else:
             max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
         
