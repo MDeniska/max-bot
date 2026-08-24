@@ -49,9 +49,9 @@ def handle_message(data, chat_id, user_id, first_name):
             max_api.send_message(chat_id, messages.WELCOME_MESSAGE, attachments=keyboards.get_main_keyboard())
             return jsonify({"ok": True}), 200
         
-        # --- СЦЕНАРИЙ: ОПИСАНИЕ ДЛЯ AI ПОРТРЕТА ---
+        # --- 1. ОПИСАНИЕ ДЛЯ AI АВАТАРКИ ---
         if state == 'avatar_describing':
-            db.save_temp_data(user_id, text) # Сохраняем описание
+            db.save_temp_data(user_id, text)
             db.set_user_state(user_id, 'avatar_choosing_style')
             max_api.send_message(
                 chat_id, 
@@ -59,7 +59,7 @@ def handle_message(data, chat_id, user_id, first_name):
                 attachments=keyboards.get_avatar_styles_keyboard()
             )
 
-        # --- СЦЕНАРИЙ: ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ ---
+        # --- 2. ГЕНЕРАЦИЯ КАРТИНОК ПО ТЕКСТУ ---
         elif state == 'waiting_image_prompt':
             if text:
                 max_api.send_message(chat_id, "🎨 Кандинский рисует... Это займет 15-30 секунд.")
@@ -73,18 +73,14 @@ def handle_message(data, chat_id, user_id, first_name):
                     db.set_user_state(user_id, 'idle')
                 except Exception as e:
                     logger.error(f"❌ Ошибка генерации картинки: {e}")
-                    max_api.send_message(chat_id, f"❌ Упс, ошибка: {str(e)}\n\n💡 *Совет:* Если модель 'просыпается', подожди 30 сек и отправь запрос еще раз!", attachments=keyboards.get_back_keyboard())
+                    max_api.send_message(chat_id, f"❌ Упс, ошибка: {str(e)}\n\n💡 *Совет:* Подожди 30 сек и отправь запрос еще раз!", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
 
-        # --- СЦЕНАРИЙ: ГЕНЕРАТОР МЕМОВ ---
+        # --- 3. ГЕНЕРАТОР МЕМОВ ---
         elif state == 'waiting_meme_text':
             if text:
                 max_api.send_message(chat_id, "🎨 Леплю мем... Секунду!")
                 try:
-                    # Используем простой локальный генератор или API, если он подключен. 
-                    # Для стабильности пока вернем заглушку или используем тот же gigachat, но с промптом "сделай мем"
-                    # Но лучше использовать тот код мема, который мы писали ранее. 
-                    # Для краткости здесь оставим генерацию через GigaChat с промптом "сделай мем с текстом"
                     prompt = f"Создай смешной мем на тему: {text}. На картинке должен быть крупный, читаемый текст."
                     processed_bytes = gigachat_image_client.generate_image(prompt=prompt)
                     new_token = gigachat_image_client.upload_to_max_api(processed_bytes)
@@ -96,17 +92,43 @@ def handle_message(data, chat_id, user_id, first_name):
                     max_api.send_message(chat_id, f"❌ Ошибка: {str(e)}", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
 
-        # --- СЦЕНАРИЙ: AI ТЕКСТЫ ---
-        elif state == 'waiting_text_prompt':
+        # --- 4. AI СОБЕСЕДНИК ---
+        elif state == 'waiting_chat_prompt':
             if text:
-                max_api.send_message(chat_id, "📝 Пишу текст... Секунду.")
+                max_api.send_message(chat_id, "💬 Думаю над ответом...")
                 try:
-                    # Используем GigaChat для генерации текста (без function_call)
                     token = gigachat_image_client.get_gigachat_token()
                     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                     payload = {
                         "model": "GigaChat-Pro",
-                        "messages": [{"role": "user", "content": f"Напиши качественный текст на тему: {text}"}]
+                        "messages": [
+                            {"role": "system", "content": "Ты дружелюбный и полезный AI-собеседник. Отвечай кратко и по делу."},
+                            {"role": "user", "content": text}
+                        ]
+                    }
+                    resp = requests.post(gigachat_image_client.API_URL, headers=headers, json=payload, timeout=30, verify=False)
+                    resp.raise_for_status()
+                    result_text = resp.json()["choices"][0]["message"]["content"]
+                    max_api.send_message(chat_id, result_text, attachments=keyboards.get_back_keyboard())
+                    db.set_user_state(user_id, 'idle')
+                except Exception as e:
+                    logger.error(f"❌ Ошибка чата: {e}")
+                    max_api.send_message(chat_id, f"❌ Ошибка: {str(e)}", attachments=keyboards.get_back_keyboard())
+                    db.set_user_state(user_id, 'idle')
+
+        # --- 5. AI КОНТЕНТ ---
+        elif state == 'waiting_content_prompt':
+            if text:
+                max_api.send_message(chat_id, "📝 Пишу качественный текст...")
+                try:
+                    token = gigachat_image_client.get_gigachat_token()
+                    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                    payload = {
+                        "model": "GigaChat-Pro",
+                        "messages": [
+                            {"role": "system", "content": "Ты профессиональный копирайтер и маркетолог. Пиши структурированные, вовлекающие тексты."},
+                            {"role": "user", "content": f"Напиши текст на тему: {text}"}
+                        ]
                     }
                     resp = requests.post(gigachat_image_client.API_URL, headers=headers, json=payload, timeout=30, verify=False)
                     resp.raise_for_status()
@@ -114,11 +136,11 @@ def handle_message(data, chat_id, user_id, first_name):
                     max_api.send_message(chat_id, f"✨ Готово:\n\n{result_text}", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
                 except Exception as e:
-                    logger.error(f"❌ Ошибка генерации текста: {e}")
+                    logger.error(f"❌ Ошибка генерации контента: {e}")
                     max_api.send_message(chat_id, f"❌ Ошибка: {str(e)}", attachments=keyboards.get_back_keyboard())
                     db.set_user_state(user_id, 'idle')
 
-        # --- СОСТОЯНИЕ ПО УМОЛЧАНИЮ ---
+        # --- ПО УМОЛЧАНИЮ ---
         else:
             max_api.send_message(chat_id, messages.UNKNOWN_COMMAND, attachments=keyboards.get_main_keyboard())
         
