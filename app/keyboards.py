@@ -1,5 +1,5 @@
 """
-Все клавиатуры бота. Строгая структура 2x3 для стабильного рендеринга в MAX.
+Единые клавиатуры бота. Строгая структура 2x3 для стабильного рендеринга в MAX.
 """
 
 def get_main_keyboard():
@@ -9,15 +9,15 @@ def get_main_keyboard():
         "payload": {
             "buttons": [
                 [
-                    {"type": "callback", "text": "🎨 AI Портрет", "payload": "ai_avatar_desc"},
-                    {"type": "callback", "text": "🖼️ Картинки по тексту", "payload": "generate_image"}
+                    {"type": "callback", "text": "🎨 AI Аватарки", "payload": "ai_avatars"},
+                    {"type": "callback", "text": "🖼️ Генерация картинок", "payload": "generate_image"}
                 ],
                 [
                     {"type": "callback", "text": "😂 Генератор мемов", "payload": "meme_generator"},
-                    {"type": "callback", "text": "📝 AI Тексты", "payload": "ai_text_gen"}
+                    {"type": "callback", "text": "💬 AI Собеседник", "payload": "ai_chat"}
                 ],
                 [
-                    {"type": "callback", "text": "🔮 AI Гороскоп", "payload": "ai_horoscope"},
+                    {"type": "callback", "text": "📝 AI Контент", "payload": "ai_content"},
                     {"type": "callback", "text": "ℹ️ О боте", "payload": "about_bot"}
                 ]
             ]
@@ -36,7 +36,7 @@ def get_back_keyboard():
     }]
 
 def get_avatar_styles_keyboard():
-    """Выбор стиля для AI Портрета (2x2)"""
+    """Выбор стиля для AI Аватарки (2x2)"""
     return [{
         "type": "inline_keyboard",
         "payload": {
