@@ -44,7 +44,8 @@ def handle_message(data, chat_id, user_id, first_name):
         if user_id and chat_id:
             db.save_chat_id(user_id, chat_id)
         
-        if text.lower() == "/start":
+        # ИСПРАВЛЕНИЕ: startswith ловит и "/start", и "/start@botname"
+        if text.lower().startswith("/start"):
             db.set_user_state(user_id, 'idle')
             max_api.send_message(chat_id, messages.WELCOME_MESSAGE, attachments=keyboards.get_main_keyboard())
             return jsonify({"ok": True}), 200
@@ -102,7 +103,7 @@ def handle_message(data, chat_id, user_id, first_name):
                     payload = {
                         "model": "GigaChat-Pro",
                         "messages": [
-                            {"role": "system", "content": "Ты дружелюбный и полезный AI-собеседник. Отвечай кратко и по делу."},
+                            {"role": "system", "content": "Ты дружелюбный и полезный AI-собеседник. Отвечай кратко, по делу и с эмодзи."},
                             {"role": "user", "content": text}
                         ]
                     }
@@ -126,7 +127,7 @@ def handle_message(data, chat_id, user_id, first_name):
                     payload = {
                         "model": "GigaChat-Pro",
                         "messages": [
-                            {"role": "system", "content": "Ты профессиональный копирайтер и маркетолог. Пиши структурированные, вовлекающие тексты."},
+                            {"role": "system", "content": "Ты профессиональный копирайтер. Пиши структурированные, вовлекающие тексты с абзацами."},
                             {"role": "user", "content": f"Напиши текст на тему: {text}"}
                         ]
                     }
