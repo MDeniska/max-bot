@@ -45,25 +45,28 @@ def generate_avatar_from_image(source_image_base64: str, style: str) -> bytes:
 
 
 def generate_image_from_text(prompt: str, width: int = 1024, height: int = 1024) -> bytes:
-    """Генерация картинки по тексту через Pollinations.ai (быстро, бесплатно, высокое качество SDXL/Flux)"""
+    """Генерация картинки по тексту через Pollinations.ai с улучшенным контролем"""
     
     # 1. Переводим запрос на английский
     en_prompt = translate_to_english(prompt)
     
-    # 2. Усиливаем промпт для максимального качества и запрета "картин в рамке"
-    enhanced_prompt = f"{en_prompt}, masterpiece, best quality, highly detailed, 8k resolution, photorealistic, vivid colors, full body shot, no frames, no borders, no canvas, standalone subject"
+    # 2. ДОБАВЛЯЕМ "МАГИЧЕСКИЕ СЛОВА" для фотореализма и запрета косплея
+    enhanced_prompt = f"{en_prompt}, photorealistic, highly detailed, 8k resolution, cinematic lighting, sharp focus, masterpiece, literal interpretation. NO humans, NO girls, NO women, NO cosplay, NO anime style."
     
-    # 3. Кодируем промпт для URL и добавляем случайный seed для разнообразия
+    # 3. Жесткий негативный промпт (Pollinations поддерживает параметр &negative=)
+    negative_prompt = "humans, girls, women, cosplay, anime, cartoon, blurry, low quality, deformed, text, watermark, signature, frame, border, canvas, painting of"
+    
+    # 4. Кодируем для URL
     encoded_prompt = urllib.parse.quote(enhanced_prompt)
+    encoded_negative = urllib.parse.quote(negative_prompt)
     seed = random.randint(1, 999999)
     
-    # 4. Формируем URL. model=flux дает потрясающие результаты для сложных запросов
-    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
+    # 5. Формируем URL с негативным промптом
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux&negative={encoded_negative}"
     
-    logger.info(f"🎨 Генерация через Pollinations.ai (Flux)...")
+    logger.info(f"🎨 Генерация через Pollinations.ai (Flux) с негативным промптом...")
     
     try:
-        # Скачиваем картинку напрямую (таймаут 60 сек, так как генерация может занять 5-15 сек)
         response = requests.get(url, timeout=60)
         response.raise_for_status()
         
@@ -75,7 +78,6 @@ def generate_image_from_text(prompt: str, width: int = 1024, height: int = 1024)
     except Exception as e:
         logger.error(f"❌ Ошибка генерации через Pollinations: {e}")
         raise Exception(f"Не удалось сгенерировать изображение: {e}")
-
 
 def upload_to_max_api(image_bytes):
     """Загружает байты картинки на MAX API и возвращает token"""
