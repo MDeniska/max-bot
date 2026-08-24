@@ -51,7 +51,26 @@ def handle_callback(data, chat_id, user_id, first_name, callback_id):
             "🖼️ Опиши словами, что ты хочешь увидеть.\n\n*Например:* 'Кот в скафандре на Луне, фотореалистично' или 'Закат в киберпанк-городе'", 
             attachments=keyboards.get_back_keyboard()
         )
-        
+    
+    # --- ГЕНЕРАТОР МЕМОВ ---
+    elif data == "meme_generator":
+        db.set_user_state(user_id, 'waiting_meme_text')
+        max_api.answer_callback(callback_id, "Режим мемолога активирован!")
+        max_api.send_message(
+            chat_id, 
+            "😂 Отправь текст для мема!\n\n"
+            "💡 *Формат:* `Текст сверху | Текст снизу`\n"
+            "*(Используй вертикальную черту `|` как разделитель)*\n\n"
+            "Пример: `Когда написал код | И он заработал с первого раза`\n"
+            "Если черту не поставить, я сам добавлю 'Когда' сверху 😉", 
+            attachments=keyboards.get_back_keyboard()
+        )
+    
+    # --- AI ГОРОСКОП (заглушка) ---
+    elif data == "ai_horoscope":
+        max_api.answer_callback(callback_id, "Функция в разработке 🛠️")
+        max_api.send_message(chat_id, "🔮 AI Гороскоп скоро будет доступен! Следите за обновлениями.", attachments=keyboards.get_back_keyboard())
+    
     else:
         max_api.answer_callback(callback_id, "Функция в разработке 🛠️")
     
