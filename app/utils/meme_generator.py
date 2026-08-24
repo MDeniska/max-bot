@@ -1,10 +1,12 @@
 """
 Генератор мемов через memegen.link (Идеальный шрифт Impact, актуальные шаблоны)
+С правильной URL-кодировкой кириллицы для предотвращения ошибок редиректа.
 """
 import requests
 import logging
 import random
 import os
+import urllib.parse
 
 logger = logging.getLogger("bot")
 
@@ -27,14 +29,13 @@ CERT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../minif
 
 
 def clean_text_for_meme(text: str) -> str:
-    """Очищает текст для URL мема (memegen.link любит подчеркивания вместо пробелов)"""
-    # Убираем лишние пробелы и заменяем на нижнее подчеркивание
+    """Подготавливает текст: убирает лишние пробелы и заменяет их на подчеркивания"""
     clean = " ".join(text.split())
     return clean.replace(" ", "_")
 
 
 def generate_meme(text: str) -> bytes:
-    """Генерирует мем через memegen.link"""
+    """Генерирует мем через memegen.link с правильной кодировкой URL"""
     
     # 1. Умное разделение текста по слэшу или тире
     separators = ['/', '-', '—', '|']
@@ -49,7 +50,7 @@ def generate_meme(text: str) -> bytes:
         text_top = parts[0].strip()
         text_bottom = parts[1].strip() if len(parts) > 1 else ""
     else:
-        # Если разделителя нет, используем только нижний текст (для шаблонов с одним текстом)
+        # Если разделителя нет, используем только нижний текст
         text_top = ""
         text_bottom = text.strip()
 
@@ -58,14 +59,15 @@ def generate_meme(text: str) -> bytes:
     # 2. Выбираем случайный шаблон
     template_id = random.choice(TEMPLATES)
     
-    # 3. Формируем URL (memegen.link предпочитает _ вместо %20)
-    top_clean = clean_text_for_meme(text_top)
-    bottom_clean = clean_text_for_meme(text_bottom)
+    # 3. КРИТИЧЕСКИ ВАЖНО: URL-кодируем кириллицу!
+    top_encoded = urllib.parse.quote(clean_text_for_meme(text_top))
+    bottom_encoded = urllib.parse.quote(clean_text_for_meme(text_bottom))
     
-    if top_clean and bottom_clean:
-        url = f"https://api.memegen.link/images/{template_id}/{top_clean}/{bottom_clean}.jpg"
-    elif bottom_clean:
-        url = f"https://api.memegen.link/images/{template_id}/{bottom_clean}.jpg"
+    # Формируем финальный URL
+    if top_encoded and bottom_encoded:
+        url = f"https://api.memegen.link/images/{template_id}/{top_encoded}/{bottom_encoded}.jpg"
+    elif bottom_encoded:
+        url = f"https://api.memegen.link/images/{template_id}/{bottom_encoded}.jpg"
     else:
         url = f"https://api.memegen.link/images/{template_id}/_.jpg"
         
@@ -73,6 +75,7 @@ def generate_meme(text: str) -> bytes:
     
     # 4. Скачиваем готовый мем с идеальным шрифтом Impact
     try:
+        # allow_redirects=True по умолчанию, но теперь URL корректный и редиректов не будет
         response = requests.get(url, timeout=15)
         if response.status_code == 503:
             raise Exception("Сервис мемов временно перегружен. Попробуй через минуту.")
