@@ -11,17 +11,12 @@ import uuid
 
 logger = logging.getLogger("bot")
 
-# Получаем ключи из переменных окружения
 AUTH_KEY = os.getenv("GIGACHAT_AUTH_KEY", "").strip()
 CLIENT_ID = os.getenv("GIGACHAT_CLIENT_ID", "").strip()
 CLIENT_SECRET = os.getenv("GIGACHAT_CLIENT_SECRET", "").strip()
 
-# Формируем заголовок Authorization
 if AUTH_KEY:
-    if AUTH_KEY.startswith("Basic "):
-        BASIC_AUTH = AUTH_KEY
-    else:
-        BASIC_AUTH = f"Basic {AUTH_KEY}"
+    BASIC_AUTH = AUTH_KEY if AUTH_KEY.startswith("Basic ") else f"Basic {AUTH_KEY}"
 else:
     encoded_credentials = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode('utf-8')).decode('utf-8')
     BASIC_AUTH = f"Basic {encoded_credentials}"
@@ -39,41 +34,22 @@ def get_gigachat_token() -> str:
     auth_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
-        "RqUID": str(uuid.uuid4()), # Валидный UUID v4
+        "RqUID": str(uuid.uuid4()),
         "Authorization": BASIC_AUTH
     }
     
     try:
-        response = requests.post(
-            AUTH_URL, 
-            headers=auth_headers, 
-            data="scope=GIGACHAT_API_PERS", 
-            timeout=10, 
-            verify=CERT_PATH
-        )
+        response = requests.post(AUTH_URL, headers=auth_headers, data="scope=GIGACHAT_API_PERS", timeout=10, verify=CERT_PATH)
         response.raise_for_status()
         token = response.json().get("access_token")
         logger.info("✅ Токен GigaChat успешно получен")
         return token
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"⚠️ Ошибка запроса токена (сертификат). Пробуем без проверки...")
-        try:
-            response = requests.post(
-                AUTH_URL, 
-                headers=auth_headers, 
-                data="scope=GIGACHAT_API_PERS", 
-                timeout=10, 
-                verify=False
-            )
-            response.raise_for_status()
-            token = response.json().get("access_token")
-            logger.info("✅ Токен GigaChat успешно получен (без проверки сертификата)")
-            return token
-        except requests.exceptions.RequestException as e2:
-            logger.error(f"❌ Ошибка получения токена GigaChat: {e2}")
-            if hasattr(e2, 'response') and e2.response is not None:
-                logger.error(f"Ответ сервера Сбера: {e2.response.text}")
-            raise Exception(f"Не удалось авторизоваться в GigaChat. Проверь ключ GIGACHAT_AUTH_KEY.")
+    except requests.exceptions.RequestException:
+        logger.warning("⚠️ Ошибка сертификата, пробуем без проверки...")
+        response = requests.post(AUTH_URL, headers=auth_headers, data="scope=GIGACHAT_API_PERS", timeout=10, verify=False)
+        response.raise_for_status()
+        logger.info("✅ Токен GigaChat успешно получен (без проверки сертификата)")
+        return response.json().get("access_token")
 
 
 def generate_image(prompt: str) -> bytes:
@@ -91,14 +67,8 @@ def generate_image(prompt: str) -> bytes:
     payload = {
         "model": "GigaChat-Pro",
         "messages": [
-            {
-                "role": "system",
-                "content": "Ты — профессиональный художник, создающий изображения по описанию."
-            },
-            {
-                "role": "user",
-                "content": f"Нарисуй: {prompt}"
-            }
+            {"role": "system", "content": "Ты — профессиональный художник, создающий изображения по описанию."},
+            {"role": "user", "content": f"Нарисуй: {prompt}"}
         ],
         "function_call": "auto"
     }
@@ -106,13 +76,17 @@ def generate_image(prompt: str) -> bytes:
     try:
         # 1. Запрашиваем генерацию
         response = requests.post(API_URL, headers=headers, json=payload, timeout=60, verify=False)
+        
+        if response.status_code == 429:
+            raise Exception("Слишком много запросов. Подождите 60 секунд и попробуйте снова.")
+            
         response.raise_for_status()
         data = response.json()
         
         content = data["choices"][0]["message"]["content"]
-        logger.info(f"📝 Ответ модели получен")
+        logger.info("📝 Ответ модели получен")
         
-        # 2. Извлекаем file_id из тега <img src="uuid" fuse="true"/>
+        # 2. Извлекаем file_id
         match = re.search(r'<img\s+src="([a-f0-9\-]+)"', content, re.IGNORECASE)
         if not match:
             raise Exception(f"Модель не вернула изображение. Ответ: {content}")
@@ -120,35 +94,37 @@ def generate_image(prompt: str) -> bytes:
         file_id = match.group(1)
         logger.info(f"✅ Получен file_id изображения: {file_id}")
         
-        # 3. Скачиваем изображение по file_id (ИСПРАВЛЕНО: используем GET вместо POST)
+        # 3. Скачиваем изображение
         file_headers = {
             "Authorization": f"Bearer {token}",
-            "Accept": "application/jpg"
+            "Accept": "application/json, image/jpeg, image/png"
         }
         
-        file_response = requests.get(  # <--- ЗДЕСЬ БЫЛО ИСПРАВЛЕНО НА GET
-            FILE_URL.format(file_id),
-            headers=file_headers,
-            timeout=30,
-            verify=False
-        )
+        file_response = requests.get(FILE_URL.format(file_id), headers=file_headers, timeout=30, verify=False)
         file_response.raise_for_status()
         
-        # 4. Декодируем base64
-        file_data = file_response.json()
-        image_b64 = file_data.get("content", "")
-        if not image_b64:
-            raise Exception(f"Пустой ответ при скачивании файла. Данные: {file_data}")
+        # 4. УМНАЯ ОБРАБОТКА: проверяем, что вернул сервер (raw картинку или JSON с base64)
+        content_type = file_response.headers.get('Content-Type', '')
+        
+        if 'image' in content_type:
+            # Сервер вернул саму картинку байтами
+            image_bytes = file_response.content
+            logger.info(f"✅ Картинка успешно получена (raw bytes, {len(image_bytes)} байт)")
+        else:
+            # Сервер вернул JSON с base64 строкой
+            file_data = file_response.json()
+            image_b64 = file_data.get("content", "")
+            if not image_b64:
+                raise Exception(f"Пустое поле content в ответе: {file_data}")
+            image_bytes = base64.b64decode(image_b64)
+            logger.info(f"✅ Картинка успешно получена (base64, {len(image_bytes)} байт)")
             
-        image_bytes = base64.b64decode(image_b64)
-        logger.info(f"✅ Картинка успешно получена ({len(image_bytes)} байт)")
         return image_bytes
         
     except requests.exceptions.HTTPError as e:
         if e.response.status_code == 429:
-            raise Exception("Слишком много запросов. Пожалуйста, подожди 30 секунд и попробуй снова.")
-        logger.error(f"❌ Ошибка HTTP GigaChat: {e}")
-        raise Exception(f"Сбой генерации: {e}")
+            raise Exception("Слишком много запросов. Подождите 60 секунд и попробуйте снова.")
+        raise Exception(f"Ошибка HTTP: {e}")
     except Exception as e:
         logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА GIGACHAT: {str(e)}")
         raise Exception(f"Сбой генерации: {str(e)}")
