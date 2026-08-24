@@ -1,5 +1,6 @@
 """
-Клиент для работы со Stable Horde API (Оптимизирован для бесплатных лимитов)
+Клиент для работы со Stable Horde API
+Включает автоматический перевод промптов с русского на английский для лучшего качества
 """
 import requests
 import logging
@@ -18,6 +19,25 @@ FACE_PRESERVATION_NEGATIVE = (
     "mutated face, distorted face, ugly, blurry, low quality, deformed, bad anatomy, "
     "extra limbs, disfigured, watermark, text, signature"
 )
+
+def translate_to_english(text: str) -> str:
+    """Автоматически переводит текст с русского на английский для Stable Diffusion"""
+    try:
+        # Используем бесплатный и надежный API MyMemory для перевода
+        url = "https://api.mymemory.translated.net/get"
+        params = {"q": text, "langpair": "ru|en"}
+        response = requests.get(url, params=params, timeout=5)
+        if response.status_code == 200:
+            translated = response.json().get("responseData", {}).get("translatedText")
+            if translated:
+                logger.info(f"🌐 Перевод промпта: '{text}' -> '{translated}'")
+                return translated
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось перевести промпт, используем оригинал: {e}")
+    
+    # Если перевод не удался, возвращаем оригинал (на случай, если пользователь уже написал на английском)
+    return text
+
 
 def generate_avatar_from_image(source_image_base64: str, style: str) -> bytes:
     """Генерирует аватар с сохранением черт лица (img2img, облегченный)"""
@@ -43,13 +63,13 @@ def generate_avatar_from_image(source_image_base64: str, style: str) -> bytes:
         "prompt": final_prompt,
         "negative_prompt": FACE_PRESERVATION_NEGATIVE,
         "params": {
-            "sampler_name": "k_euler",       # Более быстрый и дешевый сэмплер
+            "sampler_name": "k_euler",
             "cfg_scale": 7.0,
-            "steps": 20,                     # Уменьшено для бесплатного лимита
-            "width": 512,                    # Уменьшено до 512 (ниже порога 700x700)
+            "steps": 20,
+            "width": 512,
             "height": 512,
-            "denoising_strength": 0.55,      # Сохраняет лицо
-            "karras": False                  # Отключено для экономии кудо
+            "denoising_strength": 0.55,
+            "karras": False
         },
         "nsfw": False,
         "censor_nsfw": False,
@@ -63,8 +83,12 @@ def generate_avatar_from_image(source_image_base64: str, style: str) -> bytes:
 
 
 def generate_image_from_text(prompt: str, width: int = 512, height: int = 512) -> bytes:
-    """Генерация картинки по тексту (txt2img, облегченная)"""
-    logger.info(f"🎨 Stable Horde: txt2img '{prompt[:50]}...'")
+    """Генерация картинки по текстовому описанию (txt2img) с АВТО-ПЕРЕВОДОМ"""
+    
+    # 1. Переводим запрос пользователя на английский
+    en_prompt = translate_to_english(prompt)
+    
+    logger.info(f"🎨 Stable Horde: txt2img '{en_prompt[:50]}...'")
     
     headers = {
         "apikey": HORDE_API_KEY,
@@ -72,16 +96,22 @@ def generate_image_from_text(prompt: str, width: int = 512, height: int = 512) -
         "Client-Agent": "MaxBot:1.0.0:unknown:0.0.0"
     }
     
+    # 2. Усиливаем промпт, чтобы модель рисовала сам объект, а не "картину объекта"
+    enhanced_prompt = f"{en_prompt}, masterpiece, best quality, highly detailed, 8k resolution, photorealistic, direct view, no frames, no borders, no canvas, standalone subject"
+    
+    # 3. Жестко запрещаем рамки, холсты и иллюстрации
+    enhanced_negative = "ugly, blurry, low quality, distorted, deformed, bad anatomy, watermark, text, signature, frame, border, canvas, painting of, picture of, drawing of, illustration, mounted, hanging"
+    
     payload = {
-        "prompt": f"masterpiece, best quality, highly detailed, {prompt}",
-        "negative_prompt": "ugly, blurry, low quality, distorted, deformed, bad anatomy, watermark, text",
+        "prompt": enhanced_prompt,
+        "negative_prompt": enhanced_negative,
         "params": {
             "sampler_name": "k_euler",
-            "cfg_scale": 7.0,
-            "steps": 20,
+            "cfg_scale": 8.5, # Чуть выше для лучшего следования промпту
+            "steps": 25,
             "width": width,
             "height": height,
-            "karras": False
+            "karras": True # Дает более чистый и детализированный результат
         },
         "nsfw": False,
         "censor_nsfw": False,
@@ -98,11 +128,10 @@ def _submit_and_wait(headers, payload, max_wait_seconds=300):
     try:
         response = requests.post(f"{HORDE_API_URL}/generate/async", headers=headers, json=payload, timeout=30)
         
-        # ЛОВИМ ОШИБКУ НЕХВАТКИ КУДО ПРЯМО ЗДЕСЬ
         if response.status_code == 403:
             error_data = response.json()
             logger.error(f"❌ Stable Horde: Не хватает кудо! {error_data.get('message')}")
-            raise Exception("Сервису не хватает кредитов (kudos) для этого запроса. Попробуйте более простой запрос или обновите ключ API.")
+            raise Exception("Сервису не хватает кредитов (kudos). Попробуйте более простой запрос.")
             
         if response.status_code != 202:
             logger.error(f"❌ Stable Horde: ошибка отправки: {response.status_code} - {response.text}")
@@ -157,7 +186,6 @@ def _submit_and_wait(headers, payload, max_wait_seconds=300):
         return None
     except Exception as e:
         logger.error(f"❌ Stable Horde исключение: {e}")
-        # Пробрасываем исключение дальше, чтобы бот мог показать его пользователю
         raise e
 
 
