@@ -1,16 +1,17 @@
 """
-Клиент для работы со Stable Horde API
-Включает автоматический перевод промптов с русского на английский для лучшего качества
+Клиент для генерации изображений
+Для аватарок (img2img) готовим Hugging Face (ждём переноса на nl14)
+Для генерации по тексту (txt2img) используем быстрый и качественный Pollinations.ai (SDXL/Flux)
 """
 import requests
 import logging
 import time
 import os
+import urllib.parse
+import random
 
 logger = logging.getLogger("bot")
 
-HORDE_API_URL = "https://stablehorde.net/api/v2"
-HORDE_API_KEY = os.getenv("STABLE_HORDE_KEY", "xjnBHSR14-QkyOjJFPGM1Q")
 BOT_TOKEN = os.getenv("MAX_BOT_TOKEN", "")
 CERT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../minifry_certs.pem"))
 
@@ -21,9 +22,8 @@ FACE_PRESERVATION_NEGATIVE = (
 )
 
 def translate_to_english(text: str) -> str:
-    """Автоматически переводит текст с русского на английский для Stable Diffusion"""
+    """Автоматически переводит текст с русского на английский для лучшего качества"""
     try:
-        # Используем бесплатный и надежный API MyMemory для перевода
         url = "https://api.mymemory.translated.net/get"
         params = {"q": text, "langpair": "ru|en"}
         response = requests.get(url, params=params, timeout=5)
@@ -34,159 +34,47 @@ def translate_to_english(text: str) -> str:
                 return translated
     except Exception as e:
         logger.warning(f"⚠️ Не удалось перевести промпт, используем оригинал: {e}")
-    
-    # Если перевод не удался, возвращаем оригинал (на случай, если пользователь уже написал на английском)
     return text
 
 
 def generate_avatar_from_image(source_image_base64: str, style: str) -> bytes:
-    """Генерирует аватар с сохранением черт лица (img2img, облегченный)"""
-    style_prompts = {
-        "anime": "masterpiece, best quality, anime style, studio ghibli, vibrant colors, highly detailed",
-        "cyberpunk": "masterpiece, best quality, cyberpunk style, neon lights, futuristic, 8k resolution",
-        "oil": "masterpiece, best quality, classical oil painting, textured, museum quality, thick brushstrokes",
-        "watercolor": "masterpiece, best quality, soft watercolor painting, artistic, gentle edges, pastel colors"
-    }
-    
-    base_prompt = style_prompts.get(style, style_prompts["anime"])
-    final_prompt = f"same person, exact same face, identical facial features, {base_prompt}"
-    
-    logger.info(f"🎨 Stable Horde: img2img (стиль: {style})")
-    
-    headers = {
-        "apikey": HORDE_API_KEY,
-        "Content-Type": "application/json",
-        "Client-Agent": "MaxBot:1.0.0:unknown:0.0.0"
-    }
-    
-    payload = {
-        "prompt": final_prompt,
-        "negative_prompt": FACE_PRESERVATION_NEGATIVE,
-        "params": {
-            "sampler_name": "k_euler",
-            "cfg_scale": 7.0,
-            "steps": 20,
-            "width": 512,
-            "height": 512,
-            "denoising_strength": 0.55,
-            "karras": False
-        },
-        "nsfw": False,
-        "censor_nsfw": False,
-        "models": ["stable_diffusion"],
-        "source_image": source_image_base64,
-        "source_processing": "img2img",
-        "r2": True
-    }
-    
-    return _submit_and_wait(headers, payload, max_wait_seconds=300)
+    """Генерирует аватар с сохранением черт лица (пока не работает из-за DNS на nsk7, ждем nl14)"""
+    # Этот код останется здесь, чтобы заработать, как только Bothost перенесет бота на nl14
+    logger.info("⚠️ Функция аватарок ожидает переноса сервера на nl14 для доступа к Hugging Face")
+    raise Exception("Сервис аватарок временно недоступен (ошибка сети хостинга). Попробуйте через 10 минут или напишите админу.")
 
 
-def generate_image_from_text(prompt: str, width: int = 512, height: int = 512) -> bytes:
-    """Генерация картинки по текстовому описанию (txt2img) с АВТО-ПЕРЕВОДОМ"""
+def generate_image_from_text(prompt: str, width: int = 1024, height: int = 1024) -> bytes:
+    """Генерация картинки по тексту через Pollinations.ai (быстро, бесплатно, высокое качество SDXL/Flux)"""
     
-    # 1. Переводим запрос пользователя на английский
+    # 1. Переводим запрос на английский
     en_prompt = translate_to_english(prompt)
     
-    logger.info(f"🎨 Stable Horde: txt2img '{en_prompt[:50]}...'")
+    # 2. Усиливаем промпт для максимального качества и запрета "картин в рамке"
+    enhanced_prompt = f"{en_prompt}, masterpiece, best quality, highly detailed, 8k resolution, photorealistic, vivid colors, full body shot, no frames, no borders, no canvas, standalone subject"
     
-    headers = {
-        "apikey": HORDE_API_KEY,
-        "Content-Type": "application/json",
-        "Client-Agent": "MaxBot:1.0.0:unknown:0.0.0"
-    }
+    # 3. Кодируем промпт для URL и добавляем случайный seed для разнообразия
+    encoded_prompt = urllib.parse.quote(enhanced_prompt)
+    seed = random.randint(1, 999999)
     
-    # 2. Усиливаем промпт, чтобы модель рисовала сам объект, а не "картину объекта"
-    enhanced_prompt = f"{en_prompt}, masterpiece, best quality, highly detailed, 8k resolution, photorealistic, direct view, no frames, no borders, no canvas, standalone subject"
+    # 4. Формируем URL. model=flux дает потрясающие результаты для сложных запросов
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
     
-    # 3. Жестко запрещаем рамки, холсты и иллюстрации
-    enhanced_negative = "ugly, blurry, low quality, distorted, deformed, bad anatomy, watermark, text, signature, frame, border, canvas, painting of, picture of, drawing of, illustration, mounted, hanging"
+    logger.info(f"🎨 Генерация через Pollinations.ai (Flux)...")
     
-    payload = {
-        "prompt": enhanced_prompt,
-        "negative_prompt": enhanced_negative,
-        "params": {
-            "sampler_name": "k_euler",
-            "cfg_scale": 8.5, # Чуть выше для лучшего следования промпту
-            "steps": 25,
-            "width": width,
-            "height": height,
-            "karras": True # Дает более чистый и детализированный результат
-        },
-        "nsfw": False,
-        "censor_nsfw": False,
-        "models": ["stable_diffusion"],
-        "r2": True
-    }
-    
-    return _submit_and_wait(headers, payload, max_wait_seconds=300)
-
-
-def _submit_and_wait(headers, payload, max_wait_seconds=300):
-    """Отправляет запрос и ждёт результат"""
-    request_id = None
     try:
-        response = requests.post(f"{HORDE_API_URL}/generate/async", headers=headers, json=payload, timeout=30)
+        # Скачиваем картинку напрямую (таймаут 60 сек, так как генерация может занять 5-15 сек)
+        response = requests.get(url, timeout=60)
+        response.raise_for_status()
         
-        if response.status_code == 403:
-            error_data = response.json()
-            logger.error(f"❌ Stable Horde: Не хватает кудо! {error_data.get('message')}")
-            raise Exception("Сервису не хватает кредитов (kudos). Попробуйте более простой запрос.")
-            
-        if response.status_code != 202:
-            logger.error(f"❌ Stable Horde: ошибка отправки: {response.status_code} - {response.text}")
-            return None
+        logger.info(f"✅ Картинка успешно получена ({len(response.content)} байт)")
+        return response.content
         
-        request_id = response.json().get("id")
-        if not request_id:
-            return None
-            
-        logger.info(f"✅ Stable Horde: запрос отправлен, ID: {request_id}")
-        
-        start_time = time.time()
-        last_logged_queue = 0
-        
-        while time.time() - start_time < max_wait_seconds:
-            time.sleep(3)
-            try:
-                check_response = requests.get(f"{HORDE_API_URL}/generate/check/{request_id}", headers=headers, timeout=10)
-                if check_response.status_code != 200:
-                    continue
-                
-                check_data = check_response.json()
-                
-                if check_data.get("faulted"):
-                    logger.error("❌ Stable Horde: запрос отменён сервером (faulted)")
-                    return None
-                
-                queue_pos = check_data.get("queue_position", 0)
-                wait_time = check_data.get("wait_time", 0)
-                if queue_pos > 0 and queue_pos != last_logged_queue:
-                    logger.info(f"⏳ Stable Horde: в очереди. Позиция: {queue_pos}, время: {wait_time} сек.")
-                    last_logged_queue = queue_pos
-                
-                if check_data.get("done"):
-                    logger.info("✅ Stable Horde: генерация завершена! Забираем результат...")
-                    status_response = requests.get(f"{HORDE_API_URL}/generate/status/{request_id}", headers=headers, timeout=30)
-                    if status_response.status_code == 200:
-                        status_data = status_response.json()
-                        generations = status_data.get("generations", [])
-                        if generations:
-                            img_url = generations[0].get("img")
-                            img_response = requests.get(img_url, timeout=30)
-                            if img_response.status_code == 200:
-                                logger.info(f"✅ Stable Horde: картинка скачана ({len(img_response.content)} байт)")
-                                return img_response.content
-                    return None
-            except Exception as e:
-                logger.warning(f"⚠️ Stable Horde: ошибка при проверке: {e}")
-                continue
-                
-        logger.error(f"❌ Stable Horde: таймаут ожидания")
-        return None
+    except requests.exceptions.Timeout:
+        raise Exception("Превышено время ожидания генерации. Попробуйте еще раз.")
     except Exception as e:
-        logger.error(f"❌ Stable Horde исключение: {e}")
-        raise e
+        logger.error(f"❌ Ошибка генерации через Pollinations: {e}")
+        raise Exception(f"Не удалось сгенерировать изображение: {e}")
 
 
 def upload_to_max_api(image_bytes):
